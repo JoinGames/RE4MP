@@ -402,7 +402,7 @@ class ModelProbeTests(unittest.TestCase):
 
     def test_timed_test_requests_cleanup_and_cannot_restart(self):
         self.start()
-        self.g.now += 60
+        self.g.now += 180
         self.update()
         self.assertEqual(self.g.destroyed, 1)
         self.start()
@@ -572,6 +572,8 @@ class ModelProbeTests(unittest.TestCase):
         self.update()
         self.assertEqual(self.g.destroyed, 0)  # Registry entry still holds resources.
         self.g.costume_registered = False
+        self.g.now += 1
+        self.update()
         self.g.now += 1
         self.update()
         self.assertEqual(self.g.destroyed, 1)

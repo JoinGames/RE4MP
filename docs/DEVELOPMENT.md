@@ -1,6 +1,22 @@
 # Состояние разработки
 
-## Текущая итерация: 0.3.2
+## Текущая итерация: 0.3.3
+
+Отчёт v0.3.2 подтвердил загрузку костюма: после запроса дерево выросло до 11
+узлов и пяти готовых Mesh-компонентов. `CharacterContext` у копии по-прежнему
+nil. Меши исчезли после запроса CostumeManager discard; пустая запись реестра
+оставалась, поэтому скрипт не освобождал тело без подтверждения.
+
+Таймер ручного теста увеличен до 180 секунд. Добавлен ограниченный вызов
+`GPUClothCharacter.teleportGpuCloth` только по кнопке и только на проверенной
+копии. Добавлены read-only getters Motion и HitController, включая Context,
+CurrentHitPoint, Invincible, AttackEnable, DamageToParent, Setuped,
+RegisteredHitManager и Colliders. Сетевой урон не реализован: без настоящего
+CharacterContext нельзя утверждать, что HitController связан с HP владельца.
+Следующий технический шаг — отдельный disposable-тест `requestSpawn` с полным
+CharacterContext.
+
+## История: 0.3.2
 
 Получен отчёт v0.3.1: request_id=10, context_code=131072, 4077 записей позы.
 DrawSelf/Draw изменились false→true и оставались true до Remove (42 секунды).
@@ -21,7 +37,8 @@ isExistAsset. Контекст/слоты не регистрируются, Upd
 Удаление после запроса костюма ждёт пустых очередей, посылает requestCostumeDiscard
 и ждёт исчезновения записи тела из реестра; при неподтверждённом состоянии
 тело не освобождается. Нативная работа этого пути и nil callback ещё не проверены.
-Сокращённые данные и сигнатуры: [evidence/model-probe-0.3.1.json](evidence/model-probe-0.3.1.json).
+Сокращённые данные и сигнатуры: [evidence/model-probe-0.3.1.json](evidence/model-probe-0.3.1.json)
+и [evidence/model-probe-0.3.2.json](evidence/model-probe-0.3.2.json).
 
 ## История: 0.3.1
 

@@ -1,14 +1,15 @@
--- RE4LAN Model Probe v0.3.2. Optional, manual, one body request per script session.
+-- RE4LAN Model Probe v0.3.3. Optional, manual, one body request per script session.
 -- Uses APIs observed in RE4MP_scout_api4.json; native behavior is experimental.
 -- No player/partner slot changes, head/AI creation, inventory or save operations.
 -- Install beside RE4LAN.lua. See docs/MODEL_PROBE.md before running the test.
 
 local REPORT = "RE4LAN_model_probe.json"
+local TEST_SECONDS = 180
 local S = {
     phase = "idle", message = "Capture API or start the manual body test.",
     action = nil, attempted = false, request_id = nil, context_code = nil,
     identity = nil, name = nil, cleanup_sent = false, frame = 0,
-    started = nil, next_search = 0, moves = 0, report = { version = "0.3.2" },
+    started = nil, next_search = 0, moves = 0, report = { version = "0.3.3" },
 }
 
 local function list(value)
@@ -175,6 +176,10 @@ local function inspect_tree(root)
         result.nodes[#result.nodes + 1] = node
         pcall(function() node.name = tostring(go:call("get_Name")) end)
         local xf = go:call("get_Transform")
+        pcall(function()
+            local p = xf:call("get_Position")
+            node.position = {p.x, p.y, p.z}
+        end)
         local ok_scale, scale = pcall(function()
             local p = xf:call("get_Scale")
             return {p.x, p.y, p.z}
@@ -185,13 +190,34 @@ local function inspect_tree(root)
             local td = comp:get_type_definition()
             local entry = { type = td:get_full_name() }
             node.components[#node.components + 1] = entry
+            if entry.type == "via.motion.Motion" then
+                entry.motion = read_getters(comp, {"get_JointCount", "get_JointsConstructed"})
+                pcall(function()
+                    local count = comp:call("getLayerCount")
+                    entry.layers = {}
+                    for i = 0, math.min(count, 8) - 1 do
+                        local layer = comp:call("getLayer", i)
+                        if layer then entry.layers[#entry.layers + 1] = read_getters(layer,
+                            {"get_MotionBankID", "get_MotionID", "get_Frame", "get_EndFrame", "get_Running",
+                            "get_StopUpdate", "get_Setuped", "get_Jacked", "get_LayerNo"}) end
+                    end
+                end)
+            end
             if td:is_a("chainsaw.CharacterBodyUpdater") then
                 local ok, ctx = pcall(function() return comp:call("get_Context") end)
                 if ok then
                     entry.context = value_summary(ctx)
-                    if ctx then entry.context_values = read_getters(ctx,
-                        {"get_KindID", "get_CostumePresetID", "get_IsCostumeChanging", "get_Setupped"}) end
+                    if ctx then
+                        entry.context_values = read_getters(ctx,
+                            {"get_KindID", "get_CostumePresetID", "get_IsCostumeChanging", "get_Setupped",
+                            "get_HitPoint", "get_HitPointVital", "get_BodyGameObject"})
+                    end
                 else entry.context = { unavailable = tostring(ctx) } end
+            end
+            if entry.type == "chainsaw.HitController" then
+                entry.combat = read_getters(comp, {"get_Context", "get_CurrentHitPoint", "get_Invincible",
+                    "get_AttackEnable", "get_DamageToParent", "get_Setuped", "get_RegisteredHitManager",
+                    "get_Colliders", "get_DamageCalcInfo", "get_AttackOwner", "get_DamageOwner"})
             end
             if entry.type:find("^via%.render%.") then
                 if td:is_a("via.render.Mesh") or entry.type == "via.render.CompositeMesh" then
@@ -274,6 +300,10 @@ local function capture()
         "chainsaw.CostumeManager", "chainsaw.CostumeManager.CostumeApplyingInfo",
         "chainsaw.CostumeManager.CostumeChangeRequest", "chainsaw.CostumeManager.CostumeDiscardRequest",
         "chainsaw.CostumeManager.Results", "chainsaw.CharacterContext",
+        "chainsaw.CostumeManager.CostumeApplyingInfo.State",
+        "chainsaw.GPUClothCharacter", "chainsaw.GPUClothCharacterPart", "via.dynamics.GpuCloth",
+        "via.Joint", "via.motion.MotionNodeCtrl", "chainsaw.HitController", "chainsaw.HitManager",
+        "chainsaw.CharacterDamageInfo", "chainsaw.HitController.DamageInfo",
         "chainsaw.character.ControlMode",
     }) do
         local ok, result = pcall(api, name)
@@ -328,6 +358,7 @@ local function start()
     S.identity, S.context_code = identity, code
     S.report.kind, S.report.purpose = kind, purpose
     S.attempted, S.started, S.start_frame = true, os.time(), S.frame
+    S.deadline = S.started + TEST_SECONDS
     status("requesting", "Calling requestCreateBody once; no head or control request.")
     -- Unique overload in api4. Passing a nil callback is experimental; the scan
     -- establishes the signature, not native null handling. Discover ownership
@@ -419,8 +450,20 @@ local function costume_state(cm, go)
     local info = assert(cm:call("get_CostumeApplyingInfoList"), "Costume registry unavailable")
     local registered = info:call("ContainsKey", go)
     assert(type(registered) == "boolean", "Costume registry lookup unavailable")
-    return { change_requests = count("get_CostumeChangeRequestList"),
+    local state = { change_requests = count("get_CostumeChangeRequestList"),
         discard_requests = count("get_CostumeDiscardRequestList"), registered = registered }
+    if registered then
+        local ok, detail = pcall(function()
+            local item = assert(info:call("get_Item", go), "Costume entry unavailable")
+            local owner = assert(item:call("get_OwnerGameObject"), "Costume entry owner unavailable")
+            assert(tostring(owner:get_address()) == tostring(go:get_address()), "Costume entry owner mismatch")
+            local entries = assert(item:call("get_CostumeInfoList"), "Costume data list unavailable")
+            return { empty = item:call("get_Empty"), state = item:call("get_CurrentState"),
+                reserve_discard = item:call("get_ReserveDiscard"), count = entries:call("get_Count") }
+        end)
+        if ok then state.entry = detail else state.entry_error = tostring(detail) end
+    end
+    return state
 end
 
 local function apply_costume()
@@ -448,6 +491,7 @@ local function apply_costume()
     assert(verify_object(go), "Body ownership changed before costume request")
     S.costume_manager_address = tostring(cm:get_address())
     S.costume_attempted, S.costume_started = true, os.time()
+    S.deadline = S.costume_started + TEST_SECONDS
     S.report.costume = { preset = preset, kind = S.report.kind, before = before,
         request_attempted = true, callback = "nil (experimental)", samples = {} }
     write_report() -- Keep evidence even if the native request fails.
@@ -475,14 +519,28 @@ local function cleanup_costume(scene, manager)
         write_report()
         return -- Observe the asynchronous discard on a later update.
     end
-    if state.registered or state.discard_requests > 0 then write_report(); return end
+    -- RE4 retains an empty CostumeApplyingInfo entry after discarding meshes.
+    -- Presence of the cache key alone does not mean a costume is still loaded.
+    local entry = state.entry
+    local released = not state.registered or (entry and entry.empty == true
+        and entry.count == 0 and entry.reserve_discard == false)
+    if not released or state.discard_requests > 0 then
+        S.empty_seen = nil
+        write_report(); return
+    end
+    if not S.empty_seen then S.empty_seen = os.time(); write_report(); return end
+    if os.time() <= S.empty_seen then return end
     manager:call("requestDestroyBody", S.request_id)
     S.cleanup_sent = true
-    status("removal_requested", "Costume registry cleared; body deletion requested. Restart before another test.")
+    status("removal_requested", "Costume resources reported empty; body deletion requested. Restart before another test.")
 end
 
 local function remove(reason)
     if not S.request_id or S.cleanup_sent then return end
+    if not S.report.stop_reason then
+        S.report.stop_reason, S.report.stopped_elapsed = reason, os.time() - S.started
+    end
+    if S.phase == "costume_cleanup" or S.phase == "cleanup_blocked" then return end
     local ok, scene, manager, player, identity = pcall(current)
     if not ok or not same_identity(identity) then
         status("abandoned", "Scene/player changed; old request ID will not be used for cleanup.")
@@ -504,6 +562,27 @@ local function remove(reason)
     status("removal_requested", reason .. " Engine deletion is asynchronous; restart before another test.")
 end
 
+local function cloth_component(go)
+    for _, comp in ipairs(list(go:call("get_Components"):get_elements())) do
+        if comp:get_type_definition():get_full_name() == "chainsaw.GPUClothCharacter" then return comp end
+    end
+end
+
+local function enable_cloth()
+    assert(S.phase == "active" and S.costume_attempted, "Load the owned costume first")
+    local ok, scene, _, _, identity = pcall(current)
+    if not ok or not same_identity(identity) then
+        status("abandoned", "Scene/player changed before cloth test. Restart game."); return
+    end
+    local go = assert(find_owned(scene), "Owned body unavailable")
+    local cloth = assert(cloth_component(go), "Owned GPUClothCharacter unavailable")
+    assert(cloth:get_type_definition():get_method("teleportGpuCloth"), "Cloth teleport API unavailable")
+    visual_snapshot(go, "before_cloth_follow")
+    S.cloth_follow = true
+    S.report.cloth = { enabled = true, calls = 0, method = "GPUClothCharacter.teleportGpuCloth" }
+    status("active", "Cloth teleport test enabled for owned body. Observe jacket while partner moves.")
+end
+
 local function update()
     S.frame = S.frame + 1
     if S.action then
@@ -512,7 +591,8 @@ local function update()
         if action == "capture" then capture()
         elseif action == "start" then start()
         elseif action == "remove" then remove("Manual removal.")
-        elseif action == "costume" then apply_costume() end
+        elseif action == "costume" then apply_costume()
+        elseif action == "cloth" then enable_cloth() end
     end
     if S.phase == "costume_cleanup" then
         local ok, scene, manager, _, identity = pcall(current)
@@ -533,8 +613,8 @@ local function update()
         return
     end
     local now = os.time()
-    if now - S.started >= 60 or S.frame - S.start_frame >= 14400 then
-        remove("60-second test finished.")
+    if now >= S.deadline then
+        remove("180-second test timer expired.")
         return
     end
     if S.phase == "waiting" then
@@ -608,6 +688,12 @@ local function follow()
     rotation.x, rotation.y, rotation.z, rotation.w = 0, math.sin(pose.yaw / 2), 0, math.cos(pose.yaw / 2)
     xf:call("set_Position", Vector3f.new(pose.pos[1], pose.pos[2], pose.pos[3]))
     xf:call("set_Rotation", rotation)
+    if S.cloth_follow then
+        local cloth = assert(cloth_component(go), "Owned cloth component disappeared")
+        cloth:call("teleportGpuCloth")
+        S.report.cloth.calls = S.report.cloth.calls + 1
+        if S.report.cloth.calls == 1 then visual_snapshot(go, "after_cloth_follow") end
+    end
     S.moves = S.moves + 1
     if S.moves == 1 then
         S.report.first_pose = { pos = pose.pos, yaw = pose.yaw }
@@ -628,11 +714,14 @@ re.on_application_entry("LateUpdateBehavior", function() guarded(follow) end)
 re.on_script_reset(function() guarded(function() remove("Script reset.") end) end)
 re.on_draw_ui(function()
     if not imgui.tree_node("RE4LAN Model Probe") then return end
-    imgui.text("v0.3.2 | Owned-body costume test | default OFF")
-    imgui.text("No animation or combat sync. Test lasts up to 60 seconds.")
+    imgui.text("v0.3.3 | Owned-body costume / cloth test | default OFF")
+    imgui.text("No animation or combat sync. 180 seconds after the costume request.")
     imgui.text("Use a disposable game session; restart after the test before saving.")
     imgui.text("State: " .. S.phase)
     imgui.text(S.message)
+    if S.phase == "active" or S.phase == "waiting" then
+        imgui.text("Auto-remove in: " .. math.max(0, S.deadline - os.time()) .. " seconds")
+    end
     if S.report.draw_change then
         imgui.text("DrawSelf: " .. tostring(S.report.draw_change.before) .. " -> " .. tostring(S.report.draw_change.after))
     end
@@ -641,6 +730,8 @@ re.on_draw_ui(function()
     if S.phase == "active" and not S.costume_attempted and imgui.button("TEST: apply local costume") then
         S.action = "costume"
     end
+    if S.phase == "active" and S.costume_attempted and not S.cloth_follow
+        and imgui.button("TEST: follow cloth (teleport)") then S.action = "cloth" end
     if S.request_id and not S.cleanup_sent and imgui.button("Remove test body") then S.action = "remove" end
     imgui.text("Report: reframework/data/" .. REPORT)
     if S.report_write_ok == false then imgui.text("Report write failed; check reframework.log.") end

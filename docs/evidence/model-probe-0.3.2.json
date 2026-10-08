@@ -1,0 +1,314 @@
+{
+  "source": "User-provided RE4LAN_model_probe.json, v0.3.2",
+  "sha256": "798a6e50d78c7e1040573cf99cd302cbc8b82114de192fb03b372635d8e398fc",
+  "version": "0.3.2",
+  "phase": "cleanup_blocked",
+  "request_id": 9,
+  "context_code": 131072,
+  "moves": 5792,
+  "costume": {
+    "before": {
+      "change_requests": 0,
+      "discard_requests": 0,
+      "registered": false
+    },
+    "callback": "nil (experimental)",
+    "cleanup_state": {
+      "change_requests": 0,
+      "discard_requests": 0,
+      "registered": true
+    },
+    "discard_sent": true,
+    "kind": 100000,
+    "preset": 160198385,
+    "request_attempted": true,
+    "request_returned": true,
+    "samples": {
+      "1": {
+        "change_requests": 0,
+        "discard_requests": 0,
+        "registered": true
+      },
+      "10": {
+        "change_requests": 0,
+        "discard_requests": 0,
+        "registered": true
+      },
+      "3": {
+        "change_requests": 0,
+        "discard_requests": 0,
+        "registered": true
+      }
+    }
+  },
+  "observations": [
+    {
+      "label": "before_draw",
+      "elapsed": 1,
+      "mesh_count": 0,
+      "node_count": 4,
+      "root_state": {
+        "get_Draw": false,
+        "get_DrawSelf": false,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "after_draw",
+      "elapsed": 1,
+      "mesh_count": 0,
+      "node_count": 4,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "after_1s",
+      "elapsed": 2,
+      "mesh_count": 0,
+      "node_count": 4,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "after_3s",
+      "elapsed": 4,
+      "mesh_count": 0,
+      "node_count": 4,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "before_costume",
+      "elapsed": 28,
+      "mesh_count": 0,
+      "node_count": 4,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "costume_after_1s",
+      "elapsed": 29,
+      "mesh_count": 5,
+      "node_count": 11,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "jacket",
+        "hair",
+        "raytrace_mesh",
+        "head",
+        "body",
+        "SwingWind_L",
+        "SwingWind_R",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "costume_after_3s",
+      "elapsed": 31,
+      "mesh_count": 5,
+      "node_count": 11,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "jacket",
+        "hair",
+        "raytrace_mesh",
+        "head",
+        "body",
+        "SwingWind_L",
+        "SwingWind_R",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "costume_after_10s",
+      "elapsed": 38,
+      "mesh_count": 5,
+      "node_count": 11,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "jacket",
+        "hair",
+        "raytrace_mesh",
+        "head",
+        "body",
+        "SwingWind_L",
+        "SwingWind_R",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "before_remove",
+      "elapsed": 60,
+      "mesh_count": 5,
+      "node_count": 11,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "jacket",
+        "hair",
+        "raytrace_mesh",
+        "head",
+        "body",
+        "SwingWind_L",
+        "SwingWind_R",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "before_remove",
+      "elapsed": 109,
+      "mesh_count": 0,
+      "node_count": 4,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "before_remove",
+      "elapsed": 110,
+      "mesh_count": 0,
+      "node_count": 4,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    },
+    {
+      "label": "before_remove",
+      "elapsed": 112,
+      "mesh_count": 0,
+      "node_count": 4,
+      "root_state": {
+        "get_Draw": true,
+        "get_DrawSelf": true,
+        "get_Update": false,
+        "get_UpdateSelf": false,
+        "get_Valid": true
+      },
+      "node_names": [
+        "RE4LAN_VisualProbe_131072",
+        "DepthOcclusion",
+        "FlashLight",
+        "assist_Light"
+      ],
+      "children_error": null
+    }
+  ]
+}

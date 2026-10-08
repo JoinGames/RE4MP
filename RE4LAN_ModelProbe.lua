@@ -1,4 +1,4 @@
--- RE4LAN Model Probe v0.3.1. Optional, manual, one body request per script session.
+-- RE4LAN Model Probe v0.3.2. Optional, manual, one body request per script session.
 -- Uses APIs observed in RE4MP_scout_api4.json; native behavior is experimental.
 -- No player/partner slot changes, head/AI creation, inventory or save operations.
 -- Install beside RE4LAN.lua. See docs/MODEL_PROBE.md before running the test.
@@ -8,7 +8,7 @@ local S = {
     phase = "idle", message = "Capture API or start the manual body test.",
     action = nil, attempted = false, request_id = nil, context_code = nil,
     identity = nil, name = nil, cleanup_sent = false, frame = 0,
-    started = nil, next_search = 0, moves = 0, report = { version = "0.3.1" },
+    started = nil, next_search = 0, moves = 0, report = { version = "0.3.2" },
 }
 
 local function list(value)
@@ -120,15 +120,46 @@ local function read_getters(obj, names)
     return result
 end
 
+local function zero_method(obj, name)
+    -- Compiler-generated IEnumerable implementations may use explicit interface names.
+    local td = obj:get_type_definition()
+    local direct = td:get_method(name)
+    if direct then return direct end
+    for _, method in ipairs(list(td:get_methods())) do
+        local n = method:get_name()
+        if n:sub(-#name - 1) == "." .. name and #list(method:get_param_types()) == 0 then
+            return method
+        end
+    end
+end
+
 local function children(xf)
     local arr = xf:call("get_Children")
     if not arr then return {} end
     local ok, elements = pcall(function() return arr:get_elements() end)
-    if ok then return list(elements) end
-    if type(arr) == "table" then return arr end
-    local result, count = {}, arr:call("get_Count")
-    for i = 0, math.min(count, 128) - 1 do result[#result + 1] = arr:call("get_Item", i) end
-    return result, count > 128
+    if ok and elements then return list(elements) end
+    if type(arr) == "table" and not arr.get_type_definition then return arr end
+    -- RE4 returns IEnumerable<Transform>, not an indexed List or managed array.
+    local get_enum = assert(zero_method(arr, "GetEnumerator"), "Children.GetEnumerator unavailable")
+    local enumerator = assert(get_enum:call(arr), "Children enumerator is nil")
+    local success, result, clipped = pcall(function()
+        local next_item = assert(zero_method(enumerator, "MoveNext"), "Children.MoveNext unavailable")
+        local get_current = assert(zero_method(enumerator, "get_Current"), "Children.Current unavailable")
+        local values = {}
+        for _ = 1, 129 do
+            local more = next_item:call(enumerator)
+            assert(type(more) == "boolean", "Children.MoveNext did not return Boolean")
+            if not more then return values, false end
+            if #values == 128 then return values, true end
+            values[#values + 1] = assert(get_current:call(enumerator), "Children.Current is nil")
+        end
+    end)
+    pcall(function()
+        local dispose = zero_method(enumerator, "Dispose")
+        if dispose then dispose:call(enumerator) end
+    end)
+    if not success then error(result) end
+    return result, clipped
 end
 
 local DRAW_GETTERS = {"get_DrawSelf", "get_Draw", "get_UpdateSelf", "get_Update", "get_Valid"}
@@ -168,7 +199,8 @@ local function inspect_tree(root)
                 end
                 -- Read only methods that introspection confirms exist. No guessed setters.
                 entry.properties = {}
-                for _, name in ipairs({"get_Enabled", "get_Visible", "get_Mesh", "get_Material", "get_Valid"}) do
+                for _, name in ipairs({"get_Enabled", "get_Visible", "getMesh", "get_MeshReady",
+                    "get_Material", "get_MaterialReady", "get_Valid", "get_SharedSkeleton"}) do
                     local ok, method = pcall(function() return td:get_method(name) end)
                     if ok and method then
                         local values = read_getters(comp, {name})
@@ -222,7 +254,7 @@ end
 
 local function visual_snapshot(go, label)
     S.report.visuals = S.report.visuals or {}
-    if #S.report.visuals >= 8 then return end
+    if #S.report.visuals >= 12 then return end
     local snapshot = inspect_tree(go)
     snapshot.label, snapshot.elapsed = label, os.time() - S.started
     S.report.visuals[#S.report.visuals + 1] = snapshot
@@ -239,7 +271,9 @@ local function capture()
         "via.Scene", "via.GameObject", "via.Transform", "via.Component",
         "via.Folder", "via.render.Mesh", "via.render.CompositeMesh",
         "via.motion.Motion", "via.motion.MotionFsm2", "via.motion.TreeLayer",
-        "chainsaw.CostumeManager", "chainsaw.CharacterContext",
+        "chainsaw.CostumeManager", "chainsaw.CostumeManager.CostumeApplyingInfo",
+        "chainsaw.CostumeManager.CostumeChangeRequest", "chainsaw.CostumeManager.CostumeDiscardRequest",
+        "chainsaw.CostumeManager.Results", "chainsaw.CharacterContext",
         "chainsaw.character.ControlMode",
     }) do
         local ok, result = pcall(api, name)
@@ -367,6 +401,86 @@ local function find_owned(scene)
     return nil
 end
 
+local function costume_manager(manager)
+    local cm = assert(manager:call("get_CostumeManager"), "CostumeManager unavailable")
+    if S.costume_manager_address then
+        assert(tostring(cm:get_address()) == S.costume_manager_address, "CostumeManager changed; restart game")
+    end
+    return cm
+end
+
+local function costume_state(cm, go)
+    local function count(getter)
+        local queue = assert(cm:call(getter), getter .. " returned nil")
+        local n = queue:call("get_Count")
+        assert(type(n) == "number" and n >= 0 and n % 1 == 0, getter .. " count unavailable")
+        return n
+    end
+    local info = assert(cm:call("get_CostumeApplyingInfoList"), "Costume registry unavailable")
+    local registered = info:call("ContainsKey", go)
+    assert(type(registered) == "boolean", "Costume registry lookup unavailable")
+    return { change_requests = count("get_CostumeChangeRequestList"),
+        discard_requests = count("get_CostumeDiscardRequestList"), registered = registered }
+end
+
+local function apply_costume()
+    assert(S.phase == "active" and not S.costume_attempted, "Costume test requires an active body; once per session")
+    local ok, scene, manager, player, identity = pcall(current)
+    if not ok or not same_identity(identity) then
+        status("abandoned", "Scene/player changed before costume request. Restart game.")
+        return
+    end
+    local go = assert(find_owned(scene), "Owned body unavailable")
+    local cm = costume_manager(manager)
+    local td = cm:get_type_definition()
+    for _, name in ipairs({"requestCostumeChange", "requestCostumeDiscard", "isExistAsset"}) do
+        assert(td:get_method(name), "Missing CostumeManager API: " .. name)
+    end
+    local preset = player:call("get_CostumePresetID")
+    assert(type(preset) == "number" and preset > 0 and preset < 4294967296 and preset % 1 == 0,
+        "Local costume preset unavailable")
+    assert(player:call("get_KindID") == S.report.kind, "Local character kind changed")
+    assert(cm:call("isExistAsset", S.report.kind, preset) == true, "Local costume asset unavailable")
+    local before = costume_state(cm, go)
+    assert(before.change_requests == 0 and before.discard_requests == 0 and not before.registered,
+        "CostumeManager busy or owned body already registered; restart before another test")
+    visual_snapshot(go, "before_costume")
+    assert(verify_object(go), "Body ownership changed before costume request")
+    S.costume_manager_address = tostring(cm:get_address())
+    S.costume_attempted, S.costume_started = true, os.time()
+    S.report.costume = { preset = preset, kind = S.report.kind, before = before,
+        request_attempted = true, callback = "nil (experimental)", samples = {} }
+    write_report() -- Keep evidence even if the native request fails.
+    cm:call("requestCostumeChange", go, S.report.kind, preset, nil)
+    S.report.costume.request_returned = true
+    status("active", "Costume requested for owned body. Wait 10 seconds; appearance is unverified.")
+end
+
+local function cleanup_costume(scene, manager)
+    -- Both queues are global. Waiting for zero is deliberately conservative: a
+    -- pending change must not recreate resources after the body has been freed.
+    local go = assert(find_owned(scene), "Owned body unavailable for costume cleanup; restart game")
+    local cm = costume_manager(manager)
+    local state = costume_state(cm, go)
+    S.report.costume.cleanup_state = state
+    if os.time() - S.cleanup_started >= 15 then
+        status("cleanup_blocked", "Costume cleanup not confirmed within 15 seconds. Restart game before saving.")
+        return
+    end
+    if state.change_requests > 0 then write_report(); return end
+    if not S.costume_discard_sent then
+        cm:call("requestCostumeDiscard", go)
+        S.costume_discard_sent = true
+        S.report.costume.discard_sent = true
+        write_report()
+        return -- Observe the asynchronous discard on a later update.
+    end
+    if state.registered or state.discard_requests > 0 then write_report(); return end
+    manager:call("requestDestroyBody", S.request_id)
+    S.cleanup_sent = true
+    status("removal_requested", "Costume registry cleared; body deletion requested. Restart before another test.")
+end
+
 local function remove(reason)
     if not S.request_id or S.cleanup_sent then return end
     local ok, scene, manager, player, identity = pcall(current)
@@ -377,6 +491,13 @@ local function remove(reason)
     if S.name then
         local read_ok, go = pcall(find_owned, scene)
         if read_ok and go then visual_snapshot(go, "before_remove") end
+    end
+    if S.costume_attempted then
+        S.cleanup_started = S.cleanup_started or os.time()
+        S.next_cleanup = os.time() + 1
+        status("costume_cleanup", reason .. " Waiting for costume requests and resource discard.")
+        cleanup_costume(scene, manager)
+        return
     end
     manager:call("requestDestroyBody", S.request_id)
     S.cleanup_sent = true
@@ -390,7 +511,20 @@ local function update()
         S.action = nil
         if action == "capture" then capture()
         elseif action == "start" then start()
-        elseif action == "remove" then remove("Manual removal.") end
+        elseif action == "remove" then remove("Manual removal.")
+        elseif action == "costume" then apply_costume() end
+    end
+    if S.phase == "costume_cleanup" then
+        local ok, scene, manager, _, identity = pcall(current)
+        if not ok or not same_identity(identity) then
+            status("abandoned", "Scene/player changed during costume cleanup. Restart game.")
+            return
+        end
+        if os.time() >= (S.next_cleanup or 0) then
+            S.next_cleanup = os.time() + 1
+            cleanup_costume(scene, manager)
+        end
+        return
     end
     if S.phase ~= "waiting" and S.phase ~= "active" then return end
     local ok, scene, _, _, identity = pcall(current)
@@ -442,6 +576,19 @@ local function update()
             local go = find_owned(scene)
             if go then visual_snapshot(go, label) end
         end
+        if S.costume_attempted then
+            for _, seconds in ipairs({1, 3, 10}) do
+                local samples = S.report.costume.samples
+                if now - S.costume_started >= seconds and not samples[tostring(seconds)] then
+                    local go = assert(find_owned(scene), "Owned body unavailable")
+                    local _, manager = current()
+                    local ok_state, state = pcall(function() return costume_state(costume_manager(manager), go) end)
+                    samples[tostring(seconds)] = ok_state and state or { unavailable = tostring(state) }
+                    visual_snapshot(go, "costume_after_" .. seconds .. "s")
+                    break
+                end
+            end
+        end
     end
 end
 
@@ -481,7 +628,7 @@ re.on_application_entry("LateUpdateBehavior", function() guarded(follow) end)
 re.on_script_reset(function() guarded(function() remove("Script reset.") end) end)
 re.on_draw_ui(function()
     if not imgui.tree_node("RE4LAN Model Probe") then return end
-    imgui.text("v0.3.1 | Owned-body DrawSelf test | default OFF")
+    imgui.text("v0.3.2 | Owned-body costume test | default OFF")
     imgui.text("No animation or combat sync. Test lasts up to 60 seconds.")
     imgui.text("Use a disposable game session; restart after the test before saving.")
     imgui.text("State: " .. S.phase)
@@ -491,6 +638,9 @@ re.on_draw_ui(function()
     end
     if imgui.button("Capture model API (read-only)") then S.action = "capture" end
     if not S.attempted and imgui.button("TEST: create one visual body") then S.action = "start" end
+    if S.phase == "active" and not S.costume_attempted and imgui.button("TEST: apply local costume") then
+        S.action = "costume"
+    end
     if S.request_id and not S.cleanup_sent and imgui.button("Remove test body") then S.action = "remove" end
     imgui.text("Report: reframework/data/" .. REPORT)
     if S.report_write_ok == false then imgui.text("Report write failed; check reframework.log.") end

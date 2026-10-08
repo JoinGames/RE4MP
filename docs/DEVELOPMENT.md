@@ -1,6 +1,29 @@
 # Состояние разработки
 
-## Текущая итерация: 0.3.1
+## Текущая итерация: 0.3.2
+
+Получен отчёт v0.3.1: request_id=10, context_code=131072, 4077 записей позы.
+DrawSelf/Draw изменились false→true и оставались true до Remove (42 секунды).
+Общая папка Body разрешает Draw/Update. У копии UpdateSelf/Update=false и
+CharacterBodyUpdater.Context=nil; у настоящего игрока контекст настроен.
+Эти данные исключают выключенный Draw собственного корня в момент снимков,
+но не устанавливают все причины невидимости.
+
+Ошибка диагностики: `get_Children()` возвращает IEnumerable<Transform>, а
+старый fallback предполагал get_Count/get_Item. В обоих деревьях было
+`children_error: attempt to compare number with nil`. Нулевой mesh_count не
+подтверждает отсутствие мешей. Исправлены перечислитель и имя `getMesh()`;
+готовность ресурсов проверяется отдельными MeshReady/MaterialReady getters.
+
+Добавлен ручной эксперимент с CostumeManager.requestCostumeChange для
+собственного тела: kind и preset берутся у локального игрока, проверяется
+isExistAsset. Контекст/слоты не регистрируются, UpdateSelf не включается.
+Удаление после запроса костюма ждёт пустых очередей, посылает requestCostumeDiscard
+и ждёт исчезновения записи тела из реестра; при неподтверждённом состоянии
+тело не освобождается. Нативная работа этого пути и nil callback ещё не проверены.
+Сокращённые данные и сигнатуры: [evidence/model-probe-0.3.1.json](evidence/model-probe-0.3.1.json).
+
+## История: 0.3.1
 
 Получен отчёт Model Probe v0.3.0: request_id=2, context_code=131072,
 kind=100000; найден собственный объект `RE4LAN_VisualProbe_131072`.

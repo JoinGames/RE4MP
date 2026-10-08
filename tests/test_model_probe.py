@@ -22,6 +22,12 @@ draw_self, inherited_draw, update_self = false, true, false
 draw_writes, child_draw_writes, source_draw_writes = 0, 0, 0
 mesh_present, mesh_enabled, include_foreign_child = true, false, false
 draw_setter_fails, children_fail = false, false
+enumerable_children, enumeration_error, explicit_interfaces = false, false, false
+enumerator_disposed, extra_children = 0, 0
+costume_requests, costume_discards = 0, 0
+costume_changes_pending, costume_discards_pending = 0, 0
+costume_registered, costume_asset, costume_fail, costume_counts_fail = false, true, false, false
+costume_address = 60
 pending_button = nil
 os.time = function() return now end
 Vector3f = {new = function(x,y,z) return {x=x,y=y,z=z} end}
@@ -41,6 +47,29 @@ imgui = {
     end,
 }
 local function array(values) return {get_elements = function() return values end} end
+local function enumerable(values)
+    local index = 0
+    local function object(methods)
+        local defs = {}
+        for name, fn in pairs(methods) do
+            defs[#defs+1] = {get_name=function() return explicit_interfaces and ("Some.Interface."..name) or name end,
+                get_param_types=function() return {} end, call=function() return fn() end}
+        end
+        return {get_type_definition=function() return {
+            get_methods=function() return defs end,
+            get_method=function(_, name)
+                for _, d in ipairs(defs) do if d:get_name()==name then return d end end
+            end,
+        } end}
+    end
+    local e = object({MoveNext=function()
+        index=index+1
+        if enumeration_error then error("enumeration failed") end
+        return index<=#values
+    end, get_Current=function() return values[index] end,
+    Dispose=function() enumerator_disposed=enumerator_disposed+1 end})
+    return object({GetEnumerator=function() return e end})
+end
 local function id(code) return {call=function(_, method) assert(method=="get_Code", method); return code end} end
 local td = {
     get_full_name = function() return "chainsaw.Ch0a0z0BodyUpdater" end,
@@ -71,7 +100,9 @@ local xf = {get_address=function() return 41 end, call=function(_, method, value
     if method == "get_Parent" then return nil end
     if method == "get_Children" then
         if children_fail then error("children unavailable") end
-        return array(include_foreign_child and {child_xf, foreign_xf} or {child_xf})
+        local values = include_foreign_child and {child_xf, foreign_xf} or {child_xf}
+        for _=1,extra_children do values[#values+1]=child_xf end
+        return enumerable_children and enumerable(values) or array(values)
     end
     error("Unexpected transform call: " .. method)
 end}
@@ -108,13 +139,14 @@ local mesh = {
             get_full_name=function() return "via.render.Mesh" end,
             is_a=function(_, name) return name=="via.render.Mesh" end,
             get_method=function(_, name)
-                if name=="get_Enabled" or name=="get_Mesh" then return {} end
+                if name=="get_Enabled" or name=="getMesh" or name=="get_MeshReady" then return {} end
             end,
         }
     end,
     call=function(_, method)
         if method=="get_Enabled" then return mesh_enabled end
-        if method=="get_Mesh" then
+        if method=="get_MeshReady" then return mesh_present end
+        if method=="getMesh" then
             if not mesh_present then return nil end
             return {get_type_definition=function()
                 return {get_full_name=function() return "via.render.MeshResourceHolder" end}
@@ -126,7 +158,7 @@ local mesh = {
 local child = {get_address=function() return 50 end}
 child_xf = {get_address=function() return 51 end, call=function(_, method)
     if method=="get_Parent" then return xf end
-    if method=="get_Children" then return array({}) end
+    if method=="get_Children" then return enumerable_children and enumerable({}) or array({}) end
     if method=="get_GameObject" then return child end
     if method=="get_Scale" then return {x=1,y=1,z=1} end
     error(method)
@@ -168,11 +200,49 @@ local scene = {
         error("Unexpected scene call: " .. method)
     end,
 }
+local costume_manager = {
+    get_address=function() return costume_address end,
+    get_type_definition=function() return td end,
+    call=function(_, method, target, kind, preset, callback)
+        if method=="isExistAsset" then
+            assert(target==100000 and kind==160198385)
+            return costume_asset
+        end
+        if method=="get_CostumeChangeRequestList" or method=="get_CostumeDiscardRequestList" then
+            return {call=function(_, name)
+                assert(name=="get_Count")
+                if costume_counts_fail then return nil end
+                return method=="get_CostumeChangeRequestList" and costume_changes_pending or costume_discards_pending
+            end}
+        end
+        if method=="get_CostumeApplyingInfoList" then
+            return {call=function(_, name, go)
+                assert(name=="ContainsKey" and go==body, "Never query a different costume target")
+                return costume_registered
+            end}
+        end
+        assert(target==body, "Never mutate source or another costume target")
+        if method=="requestCostumeChange" then
+            assert(kind==100000 and preset==160198385 and callback==nil)
+            costume_requests=costume_requests+1
+            costume_changes_pending=1
+            if costume_fail then error("Costume request failed") end
+            return
+        end
+        if method=="requestCostumeDiscard" then
+            costume_discards=costume_discards+1
+            costume_discards_pending=1
+            return
+        end
+        error(method)
+    end,
+}
 local manager = {
     get_address=function() return manager_address end,
     get_type_definition=function() return td end,
     call=function(_, method, context, kind, purpose, callback)
         if method=="getPlayerContextRef()" then return player end
+        if method=="get_CostumeManager" then return costume_manager end
         if method=="generateDynamicContextID()" then generated=generated+1; return id(new_code) end
         if method=="requestCreateBody" then
             assert(context:call("get_Code")==new_code)
@@ -361,7 +431,7 @@ class ModelProbeTests(unittest.TestCase):
         self.assertTrue(before.nodes[1].components[1].context.is_nil)
         mesh = before.nodes[2].components[1]
         self.assertFalse(mesh.properties.get_Enabled)
-        self.assertEqual(mesh.properties.get_Mesh.type, "via.render.MeshResourceHolder")
+        self.assertEqual(mesh.properties.getMesh.type, "via.render.MeshResourceHolder")
 
     def test_hidden_parent_is_reported_without_claiming_visibility(self):
         self.g.inherited_draw = False
@@ -375,7 +445,8 @@ class ModelProbeTests(unittest.TestCase):
         self.g.mesh_present = False
         self.start()
         props = self.g.report.visuals[1].nodes[2].components[1].properties
-        self.assertTrue(props.get_Mesh.is_nil)
+        self.assertTrue(props.getMesh.is_nil)
+        self.assertFalse(props.get_MeshReady)
 
     def test_diagnostics_skip_child_with_different_parent(self):
         self.g.include_foreign_child = True
@@ -416,6 +487,156 @@ class ModelProbeTests(unittest.TestCase):
         self.assertEqual(self.g.report.request_id, 7)
         self.click("Remove test body")
         self.assertEqual(self.g.destroyed, 1)
+
+    def test_ienumerable_children_without_count_or_indexer(self):
+        self.g.enumerable_children = True
+        self.start()
+        self.assertEqual(self.g.report.visuals[1].mesh_count, 1)
+        self.assertIsNone(self.g.report.visuals[1].nodes[1].children_error)
+        self.assertGreater(self.g.enumerator_disposed, 0)
+
+    def test_explicit_interface_enumeration(self):
+        self.g.enumerable_children = self.g.explicit_interfaces = True
+        self.start()
+        self.assertEqual(self.g.report.visuals[1].mesh_count, 1)
+
+    def test_failed_enumerator_is_disposed_and_error_reported(self):
+        self.g.enumerable_children = self.g.enumeration_error = True
+        self.start()
+        self.assertIn("enumeration failed", self.g.report.visuals[1].nodes[1].children_error)
+        self.assertGreater(self.g.enumerator_disposed, 0)
+        self.click("Remove test body")
+        self.assertEqual(self.g.destroyed, 1)
+
+    def test_enumeration_is_bounded_and_truncation_reported(self):
+        self.g.enumerable_children = True
+        self.g.extra_children = 1000
+        self.start()
+        self.assertTrue(self.g.report.visuals[1].truncated)
+        self.assertEqual(len(self.g.report.visuals[1].nodes), 2)
+
+    def test_costume_requires_separate_manual_action_and_runs_once(self):
+        self.start()
+        self.assertEqual(self.g.costume_requests, 0)
+        self.g.pending_button = "TEST: apply local costume"
+        self.g.draw_ui()
+        self.assertEqual(self.g.costume_requests, 0)
+        self.update()
+        self.click("TEST: apply local costume")
+        self.assertEqual(self.g.costume_requests, 1)
+        self.assertTrue(self.g.report.costume.request_returned)
+        self.assertFalse(self.g.update_self)
+
+    def test_costume_missing_asset_leaves_body_removable(self):
+        self.start()
+        self.g.costume_asset = False
+        self.click("TEST: apply local costume")
+        self.assertEqual(self.g.costume_requests, 0)
+        self.assertIn("asset unavailable", self.g.report.message)
+        self.click("Remove test body")
+        self.assertEqual(self.g.destroyed, 1)
+
+    def test_costume_ownership_rechecked_before_request(self):
+        self.start()
+        self.g.wrong_owner = True
+        self.click("TEST: apply local costume")
+        self.assertEqual(self.g.costume_requests, 0)
+
+    def test_scene_change_before_costume_click_permanently_revokes_request(self):
+        self.start()
+        self.g.scene_address = 99
+        self.click("TEST: apply local costume")
+        self.assertEqual(self.g.report.phase, "abandoned")
+        self.g.scene_address = 10
+        self.click("Remove test body")
+        self.assertEqual(self.g.costume_requests, 0)
+        self.assertEqual(self.g.destroyed, 0)
+
+    def test_costume_cleanup_waits_for_load_then_discard_then_registry(self):
+        self.start()
+        self.click("TEST: apply local costume")
+        self.click("Remove test body")
+        self.assertEqual(self.g.report.phase, "costume_cleanup")
+        self.follow()
+        self.assertEqual(self.g.moved, 0)
+        self.assertEqual(self.g.destroyed, 0)
+        self.assertEqual(self.g.costume_discards, 0)
+        self.g.costume_changes_pending = 0
+        self.g.costume_registered = True
+        self.g.now += 1
+        self.update()
+        self.assertEqual(self.g.costume_discards, 1)
+        self.assertEqual(self.g.destroyed, 0)
+        self.g.costume_discards_pending = 0
+        self.g.now += 1
+        self.update()
+        self.assertEqual(self.g.destroyed, 0)  # Registry entry still holds resources.
+        self.g.costume_registered = False
+        self.g.now += 1
+        self.update()
+        self.assertEqual(self.g.destroyed, 1)
+        self.assertEqual(self.g.report.phase, "removal_requested")
+
+    def test_unconfirmed_costume_cleanup_times_out_without_freeing_body(self):
+        self.start()
+        self.click("TEST: apply local costume")
+        self.click("Remove test body")
+        self.g.now += 16
+        self.update()
+        self.assertEqual(self.g.report.phase, "cleanup_blocked")
+        self.assertEqual(self.g.destroyed, 0)
+
+    def test_costume_scene_change_revokes_cleanup(self):
+        self.start()
+        self.click("TEST: apply local costume")
+        self.click("Remove test body")
+        self.g.scene_address = 123
+        self.g.now += 1
+        self.update()
+        self.g.scene_address = 10
+        self.click("Remove test body")
+        self.assertEqual(self.g.report.phase, "abandoned")
+        self.assertEqual(self.g.destroyed, 0)
+        self.assertEqual(self.g.costume_discards, 0)
+
+    def test_costume_manager_change_blocks_discard(self):
+        self.start()
+        self.click("TEST: apply local costume")
+        self.g.costume_address = 61
+        self.click("Remove test body")
+        self.assertIn("CostumeManager changed", self.g.report.message)
+        self.assertEqual(self.g.costume_discards, 0)
+        self.assertEqual(self.g.destroyed, 0)
+
+    def test_failed_costume_request_still_waits_for_possible_native_work(self):
+        self.start()
+        self.g.costume_fail = True
+        self.click("TEST: apply local costume")
+        self.assertEqual(self.g.report.phase, "error")
+        self.click("Remove test body")
+        self.assertEqual(self.g.report.phase, "costume_cleanup")
+        self.assertEqual(self.g.destroyed, 0)
+
+    def test_unreadable_cleanup_queues_do_not_authorize_destroy(self):
+        self.start()
+        self.click("TEST: apply local costume")
+        self.g.costume_counts_fail = True
+        self.click("Remove test body")
+        self.assertEqual(self.g.destroyed, 0)
+        self.assertIn("count unavailable", self.g.report.message)
+
+    def test_delayed_costume_diagnostics_include_native_readiness(self):
+        self.start()
+        self.click("TEST: apply local costume")
+        self.g.costume_changes_pending = 0
+        self.g.costume_registered = True
+        for delta in (1, 2, 7):
+            self.g.now += delta
+            self.update()
+        self.assertTrue(self.g.report.costume.samples["10"].registered)
+        snapshots = list(self.g.report.visuals.values())
+        self.assertEqual(snapshots[-1].label, "costume_after_10s")
+        self.assertTrue(snapshots[-1].nodes[2].components[1].properties.get_MeshReady)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,419 @@
+=====================================================================================
+ ФАЙЛ ПЕРЕДАЧИ КОНТЕКСТА: RE4 Remake моды (NoclipFly + LAN Co-op)
+ Автор записи: Claude (предыдущий чат).  Адресат: Claude (новый чат) и пользователь.
+ Состояние на: 08.10.2026
+=====================================================================================
+
+ПРОЧТИ СНАЧАЛА (как пользоваться этим файлом)
+---------------------------------------------
+1. Пользователь пишет по-русски. Отвечай по-русски, дружелюбно, без воды.
+2. В новом чате пользователь должен ПРИКРЕПИТЬ файлы из списка в разделе 9
+   (иначе у тебя не будет кода). Если какого-то файла нет — скажи об этом и попроси.
+3. Ты НЕ можешь запускать игру. Всё тестирует пользователь на ДВУХ своих компьютерах.
+   Поэтому: каждое изменение делай небольшим, проверяй структуру кода и логику
+   симуляцией (см. раздел 10), честно говори, что в игре не проверено.
+4. Не пиши мод "вслепую" на классах, которых нет в данных скана. Сначала смотри
+   факты в разделе 5-6 и в приложенных JSON-сканах. Угаданные имена методов -
+   это риск; помечай их как эксперимент и делай переключаемыми в меню.
+5. Первым делом в новом чате: прочитай раздел 8 (что делать дальше) и спроси
+   пользователя результаты последних тестов (раздел 7).
+
+-------------------------------------------------------------------------------------
+1. ЦЕЛЬ ПРОЕКТА
+-------------------------------------------------------------------------------------
+Пользователь хочет:
+ (A) Мод NOCLIP + FREECAM для RE4 Remake (ГОТОВ, работает - см. раздел 2).
+ (B) СВОЙ локальный (LAN) кооператив для RE4 Remake, потому что готовый мод claybtv
+     ("RE4 Multiplayer", Nexus) кривой: не синхронизированы двери, лодки, анимации в
+     катсценах, частые вылеты. Нужен только LAN, без интернета/аккаунтов/серверов.
+     Желаемое: видеть друг друга (с моделью персонажа), синхронные двери, враги,
+     катсцены, лодка. Это делается ПОЭТАПНО (раздел 3).
+
+Платформа: Resident Evil 4 Remake (Steam, PC, Windows), REFramework (dinput8.dll),
+Lua-скрипты в <игра>\reframework\autorun\. В Lua REFramework НЕТ сокетов -> сеть
+сделана внешней Python-программой (relay), общение через JSON-файлы.
+
+-------------------------------------------------------------------------------------
+2. ЧАСТЬ A: RE4R_NoclipFly.lua (ГОТОВО, пользователь подтвердил "всё работает")
+-------------------------------------------------------------------------------------
+Файл: RE4R_NoclipFly.lua (~1158 строк). Клавиша по умолчанию G включает/выключает.
+Что делает: полёт по WASD (+ вверх/вниз), камера вращается мышью, Леон бессмертен и
+невидим, при выходе возвращается; FOV, скорость и т.д. настраиваются в меню REFramework.
+
+История проблемы и решение (важно помнить, чтобы не повторять ошибок):
+ * Первая версия двигала игрока вместе с камерой. Игра считала, что Леон ПАДАЕТ, и
+   наклоняла камеру вниз. Заморозка логики GameObject (UpdateSelf=false) убирала
+   наклон, но ломала вращение камеры мышью.
+ * Вывод: вращение камеры мышью и "взгляд вниз при падении" живут в одном компоненте
+   на Леоне, разделить заморозкой нельзя. Покомпонентная заморозка ("smart"/"physics")
+   тоже НЕ помогла.
+ * РЕШЕНИЕ (работает): режим "detached" (по умолчанию, cfg.mode="detached"):
+   Леон остаётся стоять на земле (каждый кадр его warp-ят на место), летит только
+   КАМЕРА: скрипт переписывает ПОЗИЦИЮ камеры (rotation оставляет игре - её крутит
+   мышь сама игра). Позиция камеры пишется в нескольких точках кадра:
+   re.on_application_entry "UpdateBehavior", "LateUpdateBehavior", "PrepareRendering"
+   и re.on_pre_application_entry "BeginRendering". При выходе Леон телепортируется
+   туда, где остановилась камера (на cfg.exit_drop метров ниже камеры), + 10 c
+   бессмертия.
+ * Старый режим "follow" (игрок летит вместе с камерой) оставлен как опция, но камера
+   там может наклоняться вниз.
+ * Ограничение detached-режима: мир не подгружается вокруг камеры (подгрузка идёт от
+   Леона), пока летишь далеко.
+ * Имя объекта игрока: "ch0a0z0_body" (PLAYER_OBJECT).
+ * Конфиг пишется через json.dump_file в reframework/data.
+
+-------------------------------------------------------------------------------------
+3. ЧАСТЬ B: ПЛАН ПОЭТАПНО (LAN co-op) и ТЕКУЩИЙ ПРОГРЕСС
+-------------------------------------------------------------------------------------
+ Этап 0. Разведка игры (скрипт-разведчик)                  - ГОТОВО (v3), нужна v4
+ Этап 1. Сеть: Python relay + Lua через JSON-файлы          - ГОТОВО, работает на 2 ПК
+ Этап 2. Видим друг друга: метка/проволочная фигура         - ГОТОВО (временно)
+ Этап 3. Синхронизация дверей (chainsaw.GmDoor)             - РАБОТАЕТ, есть недочёты
+ Этап 4. Настоящая модель второго игрока (спавн персонажа)  - НЕ НАЧАТО (нужны данные)
+ Этап 5. Катсцены (события Timeline)                        - НЕ НАЧАТО
+ Этап 6. Враги                                              - НЕ НАЧАТО
+ Этап 7. Лодка (JetSki)                                     - НЕ НАЧАТО (нужен скан на лодке)
+ Этап 8. Прочие гимики (большие ворота, ящики, лестницы), флаги сценария, инвентарь...
+
+-------------------------------------------------------------------------------------
+4. АРХИТЕКТУРА LAN-МОДА (то, что реально сделано)
+-------------------------------------------------------------------------------------
+4.1 Компоненты
+  RE4LAN.lua        - Lua-мод (v0.2), кладётся в <игра>\reframework\autorun\ у ОБОИХ.
+  re4lan_relay.py   - Python 3 (только stdlib). Режимы: host / join <IP> / echo (тест
+                      в одиночку: relay "отвечает" твоим же состоянием, сдвинутым на +3 м по X).
+                      Аргументы: --data "<игра>\reframework\data" --port 7777 (по умолч.)
+  start_*.bat       - запуск двойным кликом (пути пользователя вшиты, см. раздел 9).
+
+4.2 Файлы обмена (в <игра>\reframework\data\), префикс RE4LAN_ (НЕ RE4MP_ - тот
+    префикс использует чужой мод):
+  RE4LAN_out.json    Lua -> relay:  { seq, name, pos=[x,y,z], yaw, doors={key={s,v,d}}, ev=[{id,k,s,v,d}] }
+  RE4LAN_in.json     relay -> Lua:  { seq, d={ ...то же самое от партнёра... } }
+  RE4LAN_status.json relay -> Lua:  { t, role(host|join), mode, connected, peer, ping_ms,
+                                      tx, rx, wfail, out_hz, in_hz, out_gap_ms, delay_ms, gap_ms }
+  RE4LAN_cfg.json    настройки Lua-мода (имя, галочки, open_method и т.д.)
+  Запись из Lua: json.dump_file (НЕ атомарна); relay при чтении ловит недописанный файл и
+  повторяет. Запись relay -> Lua: через временный файл + os.replace (атомарно).
+  Пустые Lua-таблицы json.dump_file пишет как null - учитывать при чтении в Python.
+
+4.3 Сетевой протокол relay <-> relay (UDP, порт 7777, брандмауэр Windows нужно разрешить)
+  Пакет = байты "RE4L" + JSON (ASCII). Типы:
+   {"k":"hi","v":1}                    приветствие (host узнаёт адрес клиента)
+   {"k":"p","t":время} / {"k":"o","t"} пинг / понг
+   {"k":"s","ts":время_отправителя,"d":<содержимое out.json>}   состояние
+  Связь считается установленной, если пакеты приходили < 3 c назад.
+
+4.4 Сглаживание позиции (jitter buffer) В RELAY (класс Smoother) - добавлено в конце этого
+  чата, протестировано только на Linux:
+   - принимающий relay хранит снимки (pos,yaw) с временем отправителя ts, приводит к своим
+     часам через минимум смещения (off), рисует с задержкой delay = clamp(1.5*gap_ema+0.03, 0.05, 0.9),
+     интерполирует, при нехватке данных экстраполирует до 0.2 c;
+   - пишет RE4LAN_in.json с сглаженной позицией до ~60 раз/с (только при изменениях);
+   - в статус добавлены метрики out_hz (как часто Lua публикует), in_hz, out_gap_ms
+     (макс. пауза между публикациями Lua за секунду), delay_ms, gap_ms.
+  ТЕСТ (имитация отправителя с паузами по 0.5 c и пачками): без сглаживания скачок позиции
+  мог быть до 275 см, после - макс. ~29 см; но delay вырос до ~459 мс (из-за плохого входа).
+  ВАЖНО: Lua-часть (RE4LAN.lua) ЕЩЁ НЕ ОБНОВЛЕНА под это: она всё ещё сама сглаживает
+  (lerp 0.35 + экстраполяция по скорости) и показывает ложные "data rate" на основе
+  os.clock (это CPU-время, а не реальное). Нужно: убрать двойное сглаживание, показывать
+  метрики из status.json (out_hz/in_hz/out_gap_ms/delay_ms/gap_ms) и FPS по os.time().
+
+4.5 Синхронизация дверей (RE4LAN.lua, функции door_pass / receive_events / merge_world)
+  - Класс: chainsaw.GmDoor. Ключ двери: "имя|x|y|z" (координаты округлены до 0.1;
+    имена не уникальны, позиции статичны и одинаковы на обеих машинах).
+  - Состояние "открыта": get_IsOpen()==true ИЛИ поле _Routine ~= 0 (в покое у ВСЕХ дверей
+    _Routine=0, _OpenValue=0 - проверено по сканам).
+  - Событийная модель: при локальном изменении -> версия v+1, событие {id,k,s,v,d}
+    (id = os.time()*1000 + счётчик, растёт между перезапусками). События рассылаются
+    повторно ~300 кадров (защита от потерь UDP), приёмник дедуплицирует по id.
+    Приёмник воспроизводит события ПО ПОРЯДКУ, между двумя событиями одной двери
+    минимум 18 кадров (чтобы быстрый "открылась-закрылась" был виден).
+  - Параллельно рассылается снимок мира doors={key={s,v,d}} - страховка для дверей,
+    загруженных позже (стриминг).
+  - Антипинг-понг: после применения чужого события 90 кадров "самопроизвольные"
+    изменения не считаются своими. При равенстве версий побеждает ХОСТ.
+  - Отложка: если дверь только начала открываться (_CurRot ~ 0), ждём до 12 кадров, чтобы
+    узнать сторону (знак _CurRot).
+  - Применение у приёмника (cfg.open_method): 1 = makeOpened()/makeClosed() (мгновенно,
+    РАБОТАЕТ); 2 = setKickOpen() (экспериментально, пользователь ещё не проверил).
+    cfg.copy_dir (экспериментально): перед makeOpened ставит IsKickOpenSideA, после -
+    пишет _CurRot = dir*RotOpen. Результат пользователем пока не подтверждён.
+  - ВАЖНЫЙ БАГ (причина "дверь не открывается при быстром пробеге" и подвисаний):
+    быстрый поиск дверей (scene:call("findComponents(System.Type)", typeof("chainsaw.GmDoor")))
+    у пользователя НЕ сработал -> мод ушёл на медленный обход всей сцены, который в коде
+    выполняется раз в ~240 кадров (4 c) и занимает ~48 мс; между обходами find_doors()
+    возвращает nil и door_pass ничего не делает => задержка двери до 4 с + подвисание.
+    В меню видно: "Doors: 26 found (slow search, pass 48.00 ms)".
+
+4.6 Отрисовка второго игрока: проволочная фигура через draw.world_to_screen / draw.line /
+    draw.filled_circle / draw.text (голова, шея, плечи, руки, таз, ноги, линия взгляда),
+    имя и расстояние над головой. yaw считается из кватерниона:
+    yaw = atan2(2(wy+xz), 1-2(y^2+z^2)); "вперёд" = (sin yaw, 0, cos yaw) (предположение +Z).
+
+-------------------------------------------------------------------------------------
+5. ФАКТЫ ОБ ИГРЕ (из сканов; это ТВЁРДЫЕ данные, не догадки)
+-------------------------------------------------------------------------------------
+5.1 Общее
+  - Сцена ~1.6-2.3 тыс. GameObject в деревне; полный обход сцены (get_FirstTransform /
+    get_Next) в разведчике занимал 0.04-0.07 c.
+  - Игрок: GameObject "ch0a0z0_body", компонент chainsaw.Ch0a0z0BodyUpdater. Враги-ганадо:
+    "ch1c0z0_body" (13 штук в бою), ИИ на "ch1c0z0_head" (HateController, AppBehaviorTree).
+  - Спавнеры персонажей: chainsaw.CharacterSpawnController (28 шт., имена вида CSC_...).
+  - Гимики (двери и т.п.): базовый компонент chainsaw.GimmickCore (653 шт. в деревне),
+    типы: GmDoor (26), GmBigDoor, GmMotionDoor, GmBreakDoor, GmLocker, GmWindow,
+    GmLeaningLadder, GmUprightLadder, GmSavePoint, GmCoopMoveUp, CustomGmJeep, InteractHolder.
+    GimmickCore имеет get_ID() -> chainsaw.ContextID (потенциально лучший ключ, чем имя+позиция;
+    поля ContextID ещё не выгружены).
+  - В игре есть chainsaw.CoopMediatorBehavior, chainsaw.NetworkManagerBehavior, GmCoopMoveUp
+    (скорее всего механика Леон+Эшли, не сеть - ГИПОТЕЗА). Есть chainsaw.CampaignManager.GamerIndex
+    {_1P=0,_2P=1} (смысл не исследован).
+  - Катсцена (скан в начале хижины): ИГРОВОЙ Леон "ch0a0z0_body" остаётся
+    (TimelineEventActorPlayer), но появляется клон-кукла "ch0a0z0_00" (TimelineEventCharaBody),
+    вражеские куклы "ch1c0z0_00", дверь превращается в TimelineEventActorProps.
+    Менеджеры: TimelineEventMediatorBehavior, TimelineEventScheduler, AppEventManagerBehavior,
+    EventSceneFolderController, MovieMediatorBehavior, RealTimeTimelineMediatorBehavior.
+  - Транспорт: JetSkiManagerBehavior, RailCarManagerBehavior (объекта лодки в сканах НЕТ).
+  - Найдено 143 managed-синглтона (список в RE4MP_scout_api3.json -> "singletons").
+    Правило: компонент "XxxBehavior" в сцене <-> синглтон "chainsaw.Xxx" (sdk.get_managed_singleton).
+
+5.2 chainsaw.GmDoor (родитель chainsaw.GmDoorBase), точные сигнатуры из скана:
+   get_IsOpen() -> Boolean          get_OpenValue() -> Single (0..100)
+   get_OpenSide() -> chainsaw.GmGateBase.DoorSide
+   get_KickOpenSide() -> chainsaw.GmGateBase.DoorSide
+   get_Routine() / set_Routine(chainsaw.GmDoor.RoutineType)
+   makeOpened()  makeClosed()                 (мгновенно)
+   setOpen(chainsaw.GmGateBase.DoorSide side, Boolean noone)    <- АНИМИРОВАННОЕ открытие с указанием стороны
+   setKickOpen()  setClose()                  (без параметров)
+   requestOpenBase(chainsaw.GmGateBase.DoorSide side, chainsaw.GmDoorBase.DoorOpenOption option)
+  Поля (из значений): RotOpen=1.57, DoorSize=1.0, _CurRot (0 закрыта; -1.57/+1.57 открыта,
+  ЗНАК = сторона), _OldRot, _OpenValue (0..100), _OpenSpeed, _Routine (0 закрыта, 1 открыта),
+  _KeepOpen, _CloseTimer, IsKickOpenSideA, <Rno0>k__BackingField (шаг рутины).
+  Наблюдения: закрытая: Routine=0, OpenValue=0, KeepOpen=False. Открытая: Routine=1,
+  OpenValue=100, CurRot=-1.57, KeepOpen=True, CloseTimer=0.5. Сразу после закрытия
+  OpenSpeed=141 (анимация закрытия). Три двери имели WasLocked=True (заперты).
+  Значения enum DoorSide / DoorOpenOption / RoutineType в выгрузку НЕ попали (баг лимита
+  в разведчике, см. раздел 8). Сторону можно взять числом из get_OpenSide() у отправителя
+  и передать в setOpen как есть.
+
+5.3 chainsaw.CharacterManager (синглтон, 142 метода) - главное для модели игрока/врагов:
+   getPlayerContextRef() / getPlayerContextRef(PlayerNo) / getPlayerContextRef(PlayerKind) -> CharacterContext
+   getPartnerContextRef() -> CharacterContext
+   get_PlayerContextList / get_PartnerContextList / get_PlayerAndPartnerContextList
+   get_EnemyContextList() -> List<EnemyBaseContext>;  getEnemyContextRefs()[+Predicate]
+   get_DollNpcContextList() -> List<CharacterContext>      (куклы-NPC; возможно пригодятся)
+   get_CharacterContextDB() -> Dictionary<UInt32, CharacterContext>
+   get_ControlTargets() -> ControlTargetInfo[]
+   requestSpawn(ContextID spawnerContextID, ContextID contextID, CharacterKindID kind,
+                CharacterUsePurposeFlag targetType, UInt32 costumePresetID)            [+вариант с AccessoryID[]]
+   requestCreateBody(ContextID contextID, CharacterKindID kind, CharacterUsePurposeFlag usePurpose,
+                     Action<ValueTuple<Int32, via.GameObject>> instantiatedEvent) -> Int32 requestID
+   requestCreateHead(ContextID, CharacterKindID, CharacterUsePurposeFlag) -> Int32
+   requestDestroyBody(Int32) / requestDestroyHead(Int32) / requestSuspend(ContextID spawnerContextID)
+   requestControl(ContextID, CharacterControlIndex controlIndex, Int32 priority)
+   requestWarp(ContextID, Nullable<vec3> pos, Nullable<Quaternion> rot, StageIdentifier stage)
+   requestAstralWarp(ContextID, Nullable<vec3>, Nullable<Quaternion>)
+   requestCostumeChange(CharacterContext, UInt32 costumePresetID, Action<CostumeManager.Results>)
+  Поля: MaxControllableTargetCount, CharacterKindIDs: CharacterKindID[], PlayerManager, EnemyManager,
+        CostumeManager, InstanceCoordinator, LinkCoordinator, ControlTargets ...
+  chainsaw.CharacterContext: поля KindID, SpawnerID, ContextID (из родителя chainsaw.Context),
+   методы get_BodyGameObject, get_HeadGameObject, get_HitPoint, позиция/поворот.
+  НЕИЗВЕСТНО (нужен скан v4): поля структуры chainsaw.ContextID, значения enum
+   CharacterKindID (Леон/Эшли/Ада и т.д.), CharacterUsePurposeFlag, CharacterControlIndex,
+   StageIdentifier. Без них вызвать requestSpawn нельзя.
+
+5.4 События/катсцены (для этапа 5):
+   chainsaw.AppEventManager: request(AppEventDefine.RequestEntry entry),
+     getTimelineEventPlayerInfoList() -> List<TimelineEventPlayerInfo>  (какие катсцены играют СЕЙЧАС),
+     getTimelineEventContextInfoList(), getTimelineEventResource(TimelineEventDefine.ID id)
+   chainsaw.TimelineEventMediator: play(TimelineEventDefine.ID id, via.GameObject owner,
+     Action justPlay, Action justEnd, Boolean isRealTime, Boolean isRealTimeTimeline) -> Boolean,
+     isPlaying(), isPlayableNoWait(ID, Boolean is_chapter_start), get_PuppetManager, get_CharaManager ...
+   Идея: синхронизировать ЗАПУСК события по ID (а не кадры), оба игрока ждут/запускают вместе.
+   Типы TimelineEventDefine.ID, TimelineEventPlayerInfo, RequestEntry в выгрузку не попали.
+
+5.5 Флаги сценария (для общего прогресса мира):
+   chainsaw.ScenarioFlagManager: checkFlag(Guid | FlagInfo | (Int32 group, Int32 index)),
+   requestSetFlag(Guid flag, Boolean ck_readonly | String dataname,int group_no,int index |
+   ScenarioFlagDefine.Flag | FlagInfo), collectFlag(GameObject owner, String flag_name) -> FlagInfo[]
+
+5.6 chainsaw.GimmickManager: findGimmick(ContextID) -> GimmickCore, findContext(ContextID),
+   checkGmFlag(ContextID), registerGimmick(ContextID, GimmickCore), findGmBase(Type, vec3, Func)...
+
+5.7 Подсказка из ЧИТАЕМОГО файла чужого мода (shared.lua, ~70 строк, не обфусцирован):
+   - второй игрок там = GameObject с именем "Player 2" (scene:call("findGameObject(System.String)", "Player 2"));
+   - чтобы игра не управляла его анимациями, у его компонента via.motion.MotionFsm2 они
+     обнуляют слои 0,1,4,5:  layer = comp:call("getLayer", i); layer:call("set_MotionFsm2Resource", nil);
+   - проверка раз в 2.5 c, лог через log.info.
+   ВЫВОД: у кукол-персонажей анимациями рулит MotionFsm2; чтобы вручную проигрывать анимации
+   удалённого игрока, надо отключить FSM-слои и управлять через via.motion.Motion.
+   Остальные файлы того мода (system.lua, data.lua, logic.lua, module.lua, runtime.lua, sub_1.lua)
+   ОБФУСЦИРОВАНЫ виртуальной машиной (Luraph, строки "[=[LPH>..."). Я их НЕ деобфусцировал и
+   не буду - это обход защиты чужой работы и не нужно. Использовать только читаемое.
+
+5.8 Что известно про чужой мод claybtv (по строкам его DLL и по его json-файлам):
+   нативный плагин REFramework + вшитый Lua, свой сервер подбора и аккаунты, ЕСТЬ режим
+   прямого подключения по IP (LAN/VPN). Каналы синхронизации (RE4MP_hz.json): partner_pos,
+   partner_rot, partner_anim, partner_wpn, enemy_pos, enemy_anim, enemy_vitals, flag_gimmick
+   -> второго игрока они, судя по всему, показывают через слот ПАРТНЁРА (Эшли) с подменой
+   модели (команда set_char, "charswap"). Это ПРЕДПОЛОЖЕНИЕ. Обмен плагин<->Lua у них тоже
+   через JSON-файлы со счётчиком seq (подтверждает нашу схему).
+   !!! ПРИВАТНОСТЬ: файл RE4MP_login.json содержит токен входа в аккаунт пользователя на
+   сервере того мода. Не использовать, не пересылать, посоветовать пользователю выйти из
+   аккаунта/сменить пароль. Просить такие файлы больше не присылать.
+
+-------------------------------------------------------------------------------------
+6. ПРАВИЛА/ГРАБЛИ REFramework Lua, на которые мы уже наступили
+-------------------------------------------------------------------------------------
+ * td:get_methods() / td:get_fields() возвращают НЕ Lua-таблицу (userdata) -> проверка
+   type()=="table" отбрасывает результат. Нужен обход через ipairs/pairs/числовой индекс в pcall
+   (функция to_list в разведчике).
+ * "a and b or c" с b==false даёт c. Для булевых состояний писать явным if.
+ * os.clock() - ПРОЦЕССОРНОЕ время (в многопоточной игре идёт не как реальное). Для реального
+   времени: os.time() (секунды) или счётчик кадров; из Python-стороны берём точное время.
+ * json.dump_file пустую таблицу пишет как null.
+ * Вызовы методов на уже выгруженных (уничтоженных) объектах могут уронить игру: не хранить
+   указатели на компоненты между кадрами дольше необходимого, всё оборачивать в pcall,
+   список объектов брать свежим перед использованием.
+ * Перегруженные методы вызывать с сигнатурой: c:call("findGameObject(System.String)", name),
+   getPlayerContextRef() - вероятно нужна сигнатура "getPlayerContextRef()".
+ * Поля, в т.ч. backing-field: comp:get_field("<KindID>k__BackingField") читается.
+ * Для получения System.Type использовать td:get_runtime_type() (основной вариант, ещё НЕ проверен у
+   пользователя) или sdk.typeof(name). Мой код использовал sdk.typeof -> fast-поиск не сработал.
+ * Названия точек кадра для re.on_application_entry: "UpdateBehavior", "LateUpdateBehavior",
+   "PrepareRendering", "BeginRendering" (pre). Работают.
+ * draw.text / draw.line / draw.filled_circle / draw.world_to_screen работают (видно на скриншотах).
+ * Пустые строки/метки: скан-файл называется RE4MP_scout_<метка>.json в reframework/data.
+ * В outputs-скане: ограничение "ncollected >= 160" в разведчике v3 обрезало типы по алфавиту
+   (дошли только до chainsaw.Ch1f2z0...) - из-за этого НЕТ DoorSide, ContextID, CharacterKindID.
+
+-------------------------------------------------------------------------------------
+7. РЕЗУЛЬТАТЫ ТЕСТОВ ПОЛЬЗОВАТЕЛЯ (две машины, LAN)
+-------------------------------------------------------------------------------------
+ v0.1: связь работает (ping ~3.6 мс), двери синхронизируются, метка видна.
+   Проблемы: (1) быстрый пробег через дверь - у второго она не открывается;
+   (2) метка второго игрока обновляется редко; (3) дверь у второго открывается всегда в одну
+   сторону и мгновенно (makeOpened), закрывается нормально.
+ v0.2 (скриншот): CONNECTED, ping 7.1 мс, "write fails 0"; "Doors: 26 found (slow search,
+   pass 48.00 ms)"; "Local changes 11 | events received 6 | applied 5 | reverted 0 | failed 0";
+   журнал: remote ... open (v17 dir-1), local ... closed (v14 dir0) и т.д. (dir=-1 всегда в логе).
+   "data rate out 1 Hz, in 1 Hz" - но на скриншоте игрок СТОИТ (в простое Lua публикует раз в секунду),
+   поэтому это не доказательство низкой частоты; к тому же метрика считалась по os.clock.
+   Пользователь: проволочная фигура второго игрока двигается РЫВКАМИ примерно раз в 0.5 c.
+   Причина НЕ доказана. Подозрения: (a) подвисания от медленного поиска дверей (раз в 4 c, 48 мс);
+   (b) низкая реальная частота публикации/обмена файлами - надо смотреть новые метрики relay
+   (out_hz, out_gap_ms, in_hz) на ДВИЖУЩЕМСЯ игроке; (c) FPS на втором ПК.
+   НЕ ПРОВЕРЕНО пользователем: опция copy_dir (сторона открытия), open_method=2 (setKickOpen).
+
+-------------------------------------------------------------------------------------
+8. ЧТО ДЕЛАТЬ ДАЛЬШЕ (приоритеты) - СКАЖИ ПОЛЬЗОВАТЕЛЮ, ЧТО ТЫ С ЭТОГО НАЧИНАЕШЬ
+-------------------------------------------------------------------------------------
+ ШАГ 1. RE4LAN.lua -> v0.3 (самое срочное):
+   a) Быстрый поиск дверей: сначала td=sdk.find_type_definition("chainsaw.GmDoor");
+      t=td:get_runtime_type(); затем scene:call("findComponents(System.Type)", t) в pcall; запасной
+      вариант sdk.typeof. Показывать в меню режим и текст ошибки (door_mode / fast_err).
+   b) Запасной (медленный) путь переписать: НЕ раз в 4 c с возвратом nil, а бюджетный обход сцены
+      по ~500-600 узлов за кадр + ФИЛЬТР по имени GameObject (двери называются "gm80_..."; брать
+      объекты с префиксом "gm", и только у них смотреть get_Components) + кэш списка не старше
+      ~1.5 c; новый обход запускать раз в ~60 кадров. door_pass не должен простаивать.
+   c) Анимированное открытие: у отправителя при локальном открытии снимать side=get_OpenSide()
+      (число) и класть в событие/снимок (поле sd); у приёмника новые open_method: 3 = setOpen(side, true),
+      4 = setOpen(side, false); для закрытия при методах >=3 пробовать setClose(). noone=true,
+      вероятно, "открыто без игрока" - гипотеза. Дефолт оставить 1 (makeOpened), пользователь сам
+      переключит и сообщит. Если side неизвестен - откат на makeOpened.
+   d) Метки: убрать из Lua свой lerp/экстраполяцию (relay уже сглаживает), показывать метрики
+      из status.json: out_hz, out_gap_ms, in_hz, delay_ms, gap_ms; FPS считать по os.time().
+      Показать "Lua publish gap" чтобы увидеть, не Lua ли реже публикует.
+   e) Не забыть: при изменении формата out.json (если добавишь поля) relay пропускает любые поля
+      как есть; pos/yaw relay подменяет сглаженными.
+ ШАГ 2. RE4MP_Scout.lua -> v4 (нужен ОДИН новый скан, метка api4):
+   - Баг лимита: сначала выгружать ЯВНЫЙ список нужных типов (enum и структуры), потом остальное;
+     поднять лимит до ~600. Явный список: chainsaw.GmGateBase.DoorSide, chainsaw.GmDoorBase.DoorOpenOption,
+     chainsaw.GmDoor.RoutineType, chainsaw.CharacterKindID, chainsaw.ContextID, chainsaw.Context,
+     chainsaw.CharacterUsePurposeFlag, chainsaw.CharacterControlIndex, chainsaw.CharacterManager.PlayerNo,
+     chainsaw.CharacterManager.PlayerKind, chainsaw.CharacterManager.ControlTargetInfo,
+     chainsaw.StageIdentifier, chainsaw.TimelineEventDefine.ID, chainsaw.TimelineEventPlayerInfo,
+     chainsaw.AppEventDefine.RequestEntry, chainsaw.EnemyBaseContext, chainsaw.PlayerManager,
+     chainsaw.EnemyManager, chainsaw.CharacterInstanceCoordinator, chainsaw.CharacterLinkCoordinator.
+     Вложенные типы называть через точку (как их печатает get_full_name).
+   - "Живые" значения (res.live): контекст игрока из CharacterManager:getPlayerContextRef(),
+     его простые поля + поля структуры ContextID (читать get_field у struct-поля и дампить её поля),
+     KindID, SpawnerID; то же для первых 3 врагов из get_EnemyContextList и ControlTargets.
+     Для структур-полей (ContextID, StageIdentifier) читать вложенные примитивы.
+   - Пользователь делает скан api4 стоя в деревне. Также полезны сканы: на ЛОДКЕ (boat), рядом с врагами
+     (fight - уже есть), в КАТСЦЕНЕ (cutscene - уже есть).
+ ШАГ 3. Настоящая модель второго игрока (после api4):
+   - Попытка: requestSpawn / requestCreateBody с КопиейContextID игрока (изменив индекс), KindID Леона,
+     CharacterUsePurposeFlag из данных, затем найти GameObject куклы, снять FSM-слои MotionFsm2 (раздел 5.7),
+     каждый кадр ставить позицию/поворот из сглаженных данных, анимации - сначала идле/ходьба по скорости.
+   - Альтернатива: слот партнёра (Эшли) get_PartnerContextList + подмена модели (как, вероятно, делает чужой мод).
+   - Делать переключаемо и с pcall; следить, чтобы спавн не вызывал вылеты (тестировать пользователем).
+ ШАГ 4. Катсцены: логировать (в скауте) getTimelineEventPlayerInfoList() во время катсцены -> получить ID
+   события; затем синхронный запуск у второго игрока через TimelineEventMediator.play / AppEventManager.request.
+ ШАГ 5. Враги: сопоставление врагов между машинами (CharacterSpawnController + порядок/ContextID), хост
+   авторитетный (ИИ на хосте, у клиента ИИ выключен, позиции/HP/анимации от хоста).
+ ШАГ 6. Лодка: скан на лодке -> классы/параметры JetSki.
+ ШАГ 7. Прочие гимики (GmBigDoor, ящики, лестницы), ScenarioFlagManager для общего прогресса.
+
+-------------------------------------------------------------------------------------
+9. ФАЙЛЫ И СРЕДА ПОЛЬЗОВАТЕЛЯ
+-------------------------------------------------------------------------------------
+ ПРИКРЕПИ В НОВЫЙ ЧАТ (из outputs предыдущего чата и загрузок):
+   RE4_LAN_COOP_HANDOFF.txt  (этот файл)
+   RE4LAN.lua                (v0.2, 673 строки)  - основной Lua-мод LAN
+   re4lan_relay.py           (355 строк, с jitter buffer) - ретранслятор
+   RE4MP_Scout.lua           (v3, 475 строк)     - разведчик (подлежит обновлению до v4)
+   RE4R_NoclipFly.lua        (1158 строк)        - готовый мод ноуклипа
+   start_echo.bat, start_host.bat, start_join.bat, start_join_PC2.bat
+   RE4MP_scout_api3.json     (БОЛЬШОЙ - главный источник API: api/enums/extra/singletons/types)
+   API.json                  (скан v2: api двух десятков классов с полями; singletons=143)
+   village.json, door.json, fight.json, cutscene.json  (сканы v1: типы компонентов и примеры
+                              объектов с позициями)
+   door_closed.json, door_opened.json, door_closed_again.json (сканы v2: значения полей дверей)
+   shared.lua                (читаемый кусок чужого мода; остальные его файлы - обфусцированы)
+   (НЕ прикладывать RE4MP_login.json - там токен аккаунта!)
+
+ Среда пользователя:
+   ПК-1 (ХОСТ):  игра  X:\SteamLibrary\steamapps\common\RESIDENT EVIL 4  BIOHAZARD RE4
+                 (в имени ДВА пробела между "4" и "BIOHAZARD"; в bat пути в кавычках)
+                 relay и bat лежат в C:\Users\admin\Desktop\mp ; LAN IP хоста: 192.168.1.81
+   ПК-2 (join):  игра  C:\Program Files (x86)\Steam\steamapps\common\RESIDENT EVIL 4  BIOHAZARD RE4
+                 (use start_join_PC2.bat); LAN IP второго ПК виден как 192.168.1.60
+   Данные: <игра>\reframework\data ; скрипты: <игра>\reframework\autorun
+   Нужен Python 3.8+ (при установке галочка "Add python.exe to PATH"); bat пробуют `py -3`, затем `python`.
+   Порядок запуска: start_host.bat (ПК-1) -> start_join*.bat (ПК-2, ввести IP хоста) -> игра.
+   В меню REFramework (Insert): "RE4 LAN Co-op", "RE4MP Scout", "RE4R Noclip Fly".
+   Разведчик: F8 или кнопка Scan now; метка в поле Label; отчёт в reframework/data/RE4MP_scout_<метка>.json.
+   Пользователь присылает файлы и скриншоты меню - по строкам журнала и счётчикам можно диагностировать.
+
+-------------------------------------------------------------------------------------
+10. КАК Я РАБОТАЛ (методы, которые стоит повторить)
+-------------------------------------------------------------------------------------
+ * В контейнере НЕТ интерпретатора Lua и компиляторов; есть Python 3.12. Для Lua делал
+   самодельную проверку баланса блоков (function/if/for/do/repeat vs end/until + скобки),
+   игнорируя строки и комментарии (скрипт /tmp/chk.py - он утерян, перепиши за 30 строк).
+ * Логику синхронизации дверей проверял ПЕРЕНОСОМ алгоритма на Python и симуляцией: открытие/закрытие
+   с обеих сторон, одновременное изменение (хост побеждает), откат состояния игрой (нет пинг-понга),
+   быстрый пробег (открылась и закрылась за 8 кадров), потеря 50% пакетов, дверь загружена позже.
+   Все сценарии проходили. Делай так же для новой логики.
+ * Relay тестировал локально: host + join + echo на localhost с разными data-папками и имитацией
+   записи из Lua: доставка 300/300 при 60 Гц, японские ключи дверей доходят.
+ * Анализ сканов: Python-скрипты по JSON (сравнение значений полей между сканами "закрыта/открыта/закрыта").
+ * Общий стиль: небольшие итерации, объяснять причину каждого изменения, перечислять, что проверено
+   и что НЕТ, просить пользователя прислать скриншот меню/журнал.
+
+-------------------------------------------------------------------------------------
+11. ОТКРЫТЫЕ ВОПРОСЫ
+-------------------------------------------------------------------------------------
+ 1. Почему метка рывками ~2 Гц: это Lua (публикует редко/подвисает), файловый обмен или FPS? Ответят
+    метрики relay (out_hz, out_gap_ms, in_hz) на движущемся игроке + FPS обеих машин.
+ 2. Сработает ли td:get_runtime_type() для findComponents (fast-поиск дверей)?
+ 3. setOpen(side, noone): что значит noone и какие значения у DoorSide (после скана api4)?
+ 4. Как создать ContextID (value type) из Lua: нужны его поля и пример живого значения.
+ 5. Можно ли спавнить второго Леона через requestSpawn без поломки игры (вылеты, сохранения)?
+ 6. Как воспроизводить анимации куклы: via.motion.Motion / MotionFsm2 слои, нужна ли подмена ресурса.
+ 7. Стабильно ли ключевание дверей "имя|x|y|z" после перезапуска/разных патчей, или лучше ContextID.
+ 8. Сколько времени/памяти занимает door_pass (метрика pass_ms в меню): цель < 1 мс.
+
+=====================================================================================
+ Конец файла. Удачи в новом чате!
+=====================================================================================

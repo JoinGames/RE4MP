@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+.venv/
+RE4LAN_*.json
+RE4LAN_*.json.tmp
+RE4MP_scout_*.json

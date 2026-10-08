@@ -1,0 +1,2 @@
+# Used only by the offline tests; the relay itself needs only Python's stdlib.
+lupa==2.6

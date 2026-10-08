@@ -1,4 +1,4 @@
--- RE4LAN Model Probe v0.3.0. Optional, manual, one body request per script session.
+-- RE4LAN Model Probe v0.3.1. Optional, manual, one body request per script session.
 -- Uses APIs observed in RE4MP_scout_api4.json; native behavior is experimental.
 -- No player/partner slot changes, head/AI creation, inventory or save operations.
 -- Install beside RE4LAN.lua. See docs/MODEL_PROBE.md before running the test.
@@ -8,7 +8,7 @@ local S = {
     phase = "idle", message = "Capture API or start the manual body test.",
     action = nil, attempted = false, request_id = nil, context_code = nil,
     identity = nil, name = nil, cleanup_sent = false, frame = 0,
-    started = nil, next_search = 0, moves = 0, report = { version = "0.3.0" },
+    started = nil, next_search = 0, moves = 0, report = { version = "0.3.1" },
 }
 
 local function list(value)
@@ -44,7 +44,9 @@ local function api(name)
     for _, m in ipairs(list(td:get_methods())) do
         local params = {}
         for _, p in ipairs(list(m:get_param_types())) do params[#params + 1] = p:get_full_name() end
-        result.methods[#result.methods + 1] = m:get_name() .. "(" .. table.concat(params, ",") .. ")"
+        local signature = m:get_name() .. "(" .. table.concat(params, ",") .. ")"
+        local ok, ret = pcall(function() return m:get_return_type():get_full_name() end)
+        result.methods[#result.methods + 1] = signature .. (ok and (" -> " .. ret) or "")
     end
     for _, f in ipairs(list(td:get_fields())) do
         result.fields[#result.fields + 1] = f:get_name() .. " : " .. f:get_type():get_full_name()
@@ -97,6 +99,136 @@ local function pose_now()
     return pose
 end
 
+-- Keep nil/false distinct and serialize primitives only. Diagnostics must never
+-- retain a native object between callbacks or let a failed getter abort cleanup.
+local function value_summary(value)
+    if value == nil then return { is_nil = true } end
+    local t = type(value)
+    if t == "number" or t == "string" or t == "boolean" then return value end
+    local result = { lua_type = t }
+    pcall(function() result.type = value:get_type_definition():get_full_name() end)
+    pcall(function() result.address = tostring(value:get_address()) end)
+    return result
+end
+
+local function read_getters(obj, names)
+    local result = {}
+    for _, name in ipairs(names) do
+        local ok, value = pcall(function() return value_summary(obj:call(name)) end)
+        if ok then result[name] = value else result[name] = { unavailable = tostring(value) } end
+    end
+    return result
+end
+
+local function children(xf)
+    local arr = xf:call("get_Children")
+    if not arr then return {} end
+    local ok, elements = pcall(function() return arr:get_elements() end)
+    if ok then return list(elements) end
+    if type(arr) == "table" then return arr end
+    local result, count = {}, arr:call("get_Count")
+    for i = 0, math.min(count, 128) - 1 do result[#result + 1] = arr:call("get_Item", i) end
+    return result, count > 128
+end
+
+local DRAW_GETTERS = {"get_DrawSelf", "get_Draw", "get_UpdateSelf", "get_Update", "get_Valid"}
+local function inspect_tree(root)
+    local result = { nodes = {}, mesh_count = 0, truncated = false, errors = {} }
+    local seen = {}
+    local function inspect(go, depth)
+        if #result.nodes >= 128 then result.truncated = true; return end
+        local address = tostring(go:get_address())
+        if seen[address] then return end
+        seen[address] = true
+        local node = { address = address, depth = depth, state = read_getters(go, DRAW_GETTERS), components = {} }
+        result.nodes[#result.nodes + 1] = node
+        pcall(function() node.name = tostring(go:call("get_Name")) end)
+        local xf = go:call("get_Transform")
+        local ok_scale, scale = pcall(function()
+            local p = xf:call("get_Scale")
+            return {p.x, p.y, p.z}
+        end)
+        if ok_scale then node.scale = scale end
+        local comps = go:call("get_Components")
+        for _, comp in ipairs(comps and list(comps:get_elements()) or {}) do
+            local td = comp:get_type_definition()
+            local entry = { type = td:get_full_name() }
+            node.components[#node.components + 1] = entry
+            if td:is_a("chainsaw.CharacterBodyUpdater") then
+                local ok, ctx = pcall(function() return comp:call("get_Context") end)
+                if ok then
+                    entry.context = value_summary(ctx)
+                    if ctx then entry.context_values = read_getters(ctx,
+                        {"get_KindID", "get_CostumePresetID", "get_IsCostumeChanging", "get_Setupped"}) end
+                else entry.context = { unavailable = tostring(ctx) } end
+            end
+            if entry.type:find("^via%.render%.") then
+                if td:is_a("via.render.Mesh") or entry.type == "via.render.CompositeMesh" then
+                    result.mesh_count = result.mesh_count + 1
+                end
+                -- Read only methods that introspection confirms exist. No guessed setters.
+                entry.properties = {}
+                for _, name in ipairs({"get_Enabled", "get_Visible", "get_Mesh", "get_Material", "get_Valid"}) do
+                    local ok, method = pcall(function() return td:get_method(name) end)
+                    if ok and method then
+                        local values = read_getters(comp, {name})
+                        entry.properties[name] = values[name]
+                    end
+                end
+            end
+        end
+        if depth >= 8 then result.truncated = true; return end
+        local ok, next_children, clipped = pcall(children, xf)
+        if not ok then node.children_error = tostring(next_children); return end
+        if clipped then result.truncated = true end
+        for _, child in ipairs(next_children) do
+            if #result.nodes >= 128 then result.truncated = true; break end
+            local child_ok, child_err = pcall(function()
+                local parent = child:call("get_Parent")
+                assert(parent and tostring(parent:get_address()) == tostring(xf:get_address()),
+                    "Child has a different parent; skipped")
+                local child_go = child:call("get_GameObject")
+                if child_go then inspect(child_go, depth + 1) end
+            end)
+            if not child_ok then result.errors[#result.errors + 1] = tostring(child_err) end
+        end
+    end
+    local ok, err = pcall(inspect, root, 0)
+    if not ok then result.errors[#result.errors + 1] = tostring(err) end
+    -- Ancestors/folders may suppress effective Draw even when DrawSelf is true.
+    -- They are reported read-only; changing shared containers could affect the game.
+    result.ancestors = {}
+    pcall(function()
+        local xf = root:call("get_Transform"):call("get_Parent")
+        for _ = 1, 8 do
+            if not xf then break end
+            local go = xf:call("get_GameObject")
+            if go then
+                local item = read_getters(go, DRAW_GETTERS)
+                item.name = tostring(go:call("get_Name"))
+                result.ancestors[#result.ancestors + 1] = item
+            end
+            xf = xf:call("get_Parent")
+        end
+    end)
+    local ok_folder, folder = pcall(function() return root:call("get_Folder") end)
+    if ok_folder then
+        result.folder = value_summary(folder)
+        if folder then result.folder_state = read_getters(folder,
+            {"get_Name", "get_Draw", "get_DrawSelf", "get_Update", "get_UpdateSelf"}) end
+    else result.folder = { unavailable = tostring(folder) } end
+    return result
+end
+
+local function visual_snapshot(go, label)
+    S.report.visuals = S.report.visuals or {}
+    if #S.report.visuals >= 8 then return end
+    local snapshot = inspect_tree(go)
+    snapshot.label, snapshot.elapsed = label, os.time() - S.started
+    S.report.visuals[#S.report.visuals + 1] = snapshot
+    write_report()
+end
+
 local function capture()
     S.report.api = {}
     for _, name in ipairs({
@@ -105,7 +237,9 @@ local function capture()
         "chainsaw.CharacterInstanceCoordinator.InstancePoolInfo",
         "chainsaw.CharacterLinkCoordinator.CharacterLinkInfo", "chainsaw.BodyUpdater",
         "via.Scene", "via.GameObject", "via.Transform", "via.Component",
-        "via.motion.Motion", "via.motion.MotionFsm2", "via.motion.MotionLayer",
+        "via.Folder", "via.render.Mesh", "via.render.CompositeMesh",
+        "via.motion.Motion", "via.motion.MotionFsm2", "via.motion.TreeLayer",
+        "chainsaw.CostumeManager", "chainsaw.CharacterContext",
         "chainsaw.character.ControlMode",
     }) do
         local ok, result = pcall(api, name)
@@ -127,6 +261,11 @@ local function capture()
         return values
     end)
     S.report.local_player = ok and result or { unavailable = tostring(result) }
+    local tree_ok, tree = pcall(function()
+        local _, _, player = current()
+        return inspect_tree(player:call("get_BodyGameObject"))
+    end)
+    S.report.local_visual = tree_ok and tree or { unavailable = tostring(tree) }
     write_report()
 end
 
@@ -235,6 +374,10 @@ local function remove(reason)
         status("abandoned", "Scene/player changed; old request ID will not be used for cleanup.")
         return
     end
+    if S.name then
+        local read_ok, go = pcall(find_owned, scene)
+        if read_ok and go then visual_snapshot(go, "before_remove") end
+    end
     manager:call("requestDestroyBody", S.request_id)
     S.cleanup_sent = true
     status("removal_requested", reason .. " Engine deletion is asynchronous; restart before another test.")
@@ -271,10 +414,33 @@ local function update()
                 assert(not scene:call("findGameObject(System.String)", name), "Probe object name already in use.")
                 S.name = name
                 go:call("set_Name", name)
-                -- No guessed animation/FSM or collision changes. First establish
-                -- that an independently requested body exists and accepts its pose.
-                status("active", "Owned body found; following partner. Visibility/animation unverified.")
+                visual_snapshot(go, "before_draw")
+                -- The user report confirms this setter exists. Affect only our
+                -- verified root, never a shared folder, ancestor or local player.
+                assert(verify_object(go), "Body ownership changed before enabling DrawSelf.")
+                local before = go:call("get_DrawSelf")
+                assert(type(before) == "boolean", "DrawSelf could not be read as a boolean.")
+                S.report.draw_change = { before = before, called = false }
+                if not before then
+                    go:call("set_DrawSelf", true)
+                    S.report.draw_change.called = true
+                end
+                S.report.draw_change.after = go:call("get_DrawSelf")
+                visual_snapshot(go, "after_draw")
+                S.active_since, S.active_frame = now, S.frame
+                status("active", "Owned body found; DrawSelf checked. Collecting visibility diagnostics.")
             end
+        end
+    elseif S.phase == "active" then
+        local label
+        if not S.visual_1s and now - S.active_since >= 1 then
+            S.visual_1s, label = true, "after_1s"
+        elseif not S.visual_3s and now - S.active_since >= 3 then
+            S.visual_3s, label = true, "after_3s"
+        end
+        if label then
+            local go = find_owned(scene)
+            if go then visual_snapshot(go, label) end
         end
     end
 end
@@ -315,11 +481,14 @@ re.on_application_entry("LateUpdateBehavior", function() guarded(follow) end)
 re.on_script_reset(function() guarded(function() remove("Script reset.") end) end)
 re.on_draw_ui(function()
     if not imgui.tree_node("RE4LAN Model Probe") then return end
-    imgui.text("v0.3.0 | Experimental visual body test | default OFF")
+    imgui.text("v0.3.1 | Owned-body DrawSelf test | default OFF")
     imgui.text("No animation or combat sync. Test lasts up to 60 seconds.")
     imgui.text("Use a disposable game session; restart after the test before saving.")
     imgui.text("State: " .. S.phase)
     imgui.text(S.message)
+    if S.report.draw_change then
+        imgui.text("DrawSelf: " .. tostring(S.report.draw_change.before) .. " -> " .. tostring(S.report.draw_change.after))
+    end
     if imgui.button("Capture model API (read-only)") then S.action = "capture" end
     if not S.attempted and imgui.button("TEST: create one visual body") then S.action = "start" end
     if S.request_id and not S.cleanup_sent and imgui.button("Remove test body") then S.action = "remove" end

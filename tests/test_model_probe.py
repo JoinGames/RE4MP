@@ -18,6 +18,10 @@ remote_live, scene_live = true, true
 body_ready, wrong_owner, fail_create, fail_destroy = true, false, false, false
 pose_x, pose_yaw = 8, math.pi / 2
 created, destroyed, renamed, moved, generated = 0, 0, 0, 0, 0
+draw_self, inherited_draw, update_self = false, true, false
+draw_writes, child_draw_writes, source_draw_writes = 0, 0, 0
+mesh_present, mesh_enabled, include_foreign_child = true, false, false
+draw_setter_fails, children_fail = false, false
 pending_button = nil
 os.time = function() return now end
 Vector3f = {new = function(x,y,z) return {x=x,y=y,z=z} end}
@@ -39,6 +43,7 @@ imgui = {
 local function array(values) return {get_elements = function() return values end} end
 local function id(code) return {call=function(_, method) assert(method=="get_Code", method); return code end} end
 local td = {
+    get_full_name = function() return "chainsaw.Ch0a0z0BodyUpdater" end,
     get_methods = function() return {} end,
     get_fields = function() return {} end,
     get_method = function() return {} end,
@@ -50,10 +55,24 @@ local td = {
     end,
 }
 local original_body = {get_address=function() return player_address end}
-local xf = {call=function(_, method, value)
+original_body.call = function(_, method)
+    if method=="set_DrawSelf" then source_draw_writes=source_draw_writes+1; error("Do not change source") end
+    if method=="get_Name" then return "local_player" end
+    if method=="get_Components" then return array({}) end
+    if method:find("^get_") then return true end
+    error(method)
+end
+local child_xf, foreign_xf
+local xf = {get_address=function() return 41 end, call=function(_, method, value)
     if method == "set_Position" then moved = moved + 1; last_position = value; return end
     if method == "set_Rotation" then last_rotation = value; return end
     if method == "get_Position" then return last_position end
+    if method == "get_Scale" then return {x=1,y=1,z=1} end
+    if method == "get_Parent" then return nil end
+    if method == "get_Children" then
+        if children_fail then error("children unavailable") end
+        return array(include_foreign_child and {child_xf, foreign_xf} or {child_xf})
+    end
     error("Unexpected transform call: " .. method)
 end}
 local body = {get_address=function() return 40 end}
@@ -63,6 +82,7 @@ local comp = {
         if method=="get_InstanceDemandID" then return 7 end
         if method=="get_InstanceParentID" then return id(wrong_owner and 123 or new_code) end
         if method=="get_GameObject" then return body end
+        if method=="get_Context" then return nil end
         error("Unexpected component call: " .. method)
     end,
 }
@@ -71,8 +91,59 @@ body.call=function(_, method, value)
     if method=="get_Components" then return array({comp}) end
     if method=="get_Transform" then return xf end
     if method=="set_Name" then renamed=renamed+1; body_name=value; return end
+    if method=="get_DrawSelf" then return draw_self end
+    if method=="get_Draw" then return draw_self and inherited_draw end
+    if method=="get_UpdateSelf" or method=="get_Update" then return update_self end
+    if method=="get_Valid" then return true end
+    if method=="get_Folder" then return nil end
+    if method=="set_DrawSelf" then
+        if draw_setter_fails then error("draw setter failed") end
+        draw_writes=draw_writes+1; draw_self=value; return
+    end
     error("Unexpected body call: " .. method)
 end
+local mesh = {
+    get_type_definition=function()
+        return {
+            get_full_name=function() return "via.render.Mesh" end,
+            is_a=function(_, name) return name=="via.render.Mesh" end,
+            get_method=function(_, name)
+                if name=="get_Enabled" or name=="get_Mesh" then return {} end
+            end,
+        }
+    end,
+    call=function(_, method)
+        if method=="get_Enabled" then return mesh_enabled end
+        if method=="get_Mesh" then
+            if not mesh_present then return nil end
+            return {get_type_definition=function()
+                return {get_full_name=function() return "via.render.MeshResourceHolder" end}
+            end}
+        end
+        error(method)
+    end,
+}
+local child = {get_address=function() return 50 end}
+child_xf = {get_address=function() return 51 end, call=function(_, method)
+    if method=="get_Parent" then return xf end
+    if method=="get_Children" then return array({}) end
+    if method=="get_GameObject" then return child end
+    if method=="get_Scale" then return {x=1,y=1,z=1} end
+    error(method)
+end}
+child.call=function(_, method)
+    if method=="get_Name" then return "costume_mesh" end
+    if method=="get_Transform" then return child_xf end
+    if method=="get_Components" then return array({mesh}) end
+    if method=="get_DrawSelf" or method=="get_Draw" then return false end
+    if method=="get_UpdateSelf" or method=="get_Update" or method=="get_Valid" then return true end
+    if method=="set_DrawSelf" then child_draw_writes=child_draw_writes+1; error("Do not activate hidden child variants") end
+    error(method)
+end
+foreign_xf = {call=function(_, method)
+    if method=="get_Parent" then return {get_address=function() return 999 end} end
+    error("Foreign object should not be traversed")
+end}
 local player = {call=function(_, method)
     if method=="get_BodyGameObject" then return original_body end
     if method=="get_ID" then return id(player_code) end
@@ -274,6 +345,75 @@ class ModelProbeTests(unittest.TestCase):
         self.assertEqual(self.g.report.phase, "error")
         self.assertFalse(self.g.report.cleanup_sent)
         self.g.fail_destroy = False
+        self.click("Remove test body")
+        self.assertEqual(self.g.destroyed, 1)
+
+    def test_enables_only_our_root_draw_and_preserves_before_state(self):
+        self.start()
+        self.assertEqual(self.g.draw_writes, 1)
+        self.assertEqual(self.g.child_draw_writes, 0)
+        self.assertEqual(self.g.source_draw_writes, 0)
+        self.assertFalse(self.g.update_self)
+        before, after = self.g.report.visuals[1], self.g.report.visuals[2]
+        self.assertFalse(before.nodes[1].state.get_DrawSelf)
+        self.assertTrue(after.nodes[1].state.get_DrawSelf)
+        self.assertEqual(before.mesh_count, 1)
+        self.assertTrue(before.nodes[1].components[1].context.is_nil)
+        mesh = before.nodes[2].components[1]
+        self.assertFalse(mesh.properties.get_Enabled)
+        self.assertEqual(mesh.properties.get_Mesh.type, "via.render.MeshResourceHolder")
+
+    def test_hidden_parent_is_reported_without_claiming_visibility(self):
+        self.g.inherited_draw = False
+        self.start()
+        after = self.g.report.visuals[2]
+        self.assertTrue(after.nodes[1].state.get_DrawSelf)
+        self.assertFalse(after.nodes[1].state.get_Draw)
+        self.assertFalse(self.g.inherited_draw)
+
+    def test_missing_mesh_resource_is_explicit(self):
+        self.g.mesh_present = False
+        self.start()
+        props = self.g.report.visuals[1].nodes[2].components[1].properties
+        self.assertTrue(props.get_Mesh.is_nil)
+
+    def test_diagnostics_skip_child_with_different_parent(self):
+        self.g.include_foreign_child = True
+        self.start()
+        snapshot = self.g.report.visuals[1]
+        self.assertEqual(len(snapshot.nodes), 2)
+        self.assertIn("different parent", snapshot.errors[1])
+
+    def test_diagnostic_failure_does_not_block_cleanup(self):
+        self.g.children_fail = True
+        self.start()
+        self.assertEqual(self.g.report.phase, "active")
+        self.assertIn("children unavailable", self.g.report.visuals[1].nodes[1].children_error)
+        self.click("Remove test body")
+        self.assertEqual(self.g.destroyed, 1)
+
+    def test_draw_is_not_forced_every_frame_and_resets_are_captured(self):
+        self.start()
+        self.g.draw_self = False  # Simulate the engine resetting the flag.
+        self.g.now += 1
+        self.update()
+        self.assertFalse(self.g.report.visuals[3].nodes[1].state.get_DrawSelf)
+        self.assertEqual(self.g.draw_writes, 1)
+        self.g.now += 3
+        self.update()
+        self.assertEqual(self.g.report.visuals[4].label, "after_3s")
+
+    def test_already_drawable_root_is_not_rewritten(self):
+        self.g.draw_self = True
+        self.start()
+        self.assertEqual(self.g.draw_writes, 0)
+        self.assertFalse(self.g.report.draw_change.called)
+
+    def test_draw_failure_retains_owned_request_for_cleanup(self):
+        self.g.draw_setter_fails = True
+        self.start()
+        self.assertEqual(self.g.report.phase, "error")
+        self.assertEqual(self.g.report.request_id, 7)
         self.click("Remove test body")
         self.assertEqual(self.g.destroyed, 1)
 

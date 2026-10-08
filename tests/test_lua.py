@@ -43,6 +43,8 @@ json = {
         if path == "RE4LAN_cfg.json" then
             return {sync_doors=false, show_ghost=false}
         end
+        if path == "RE4LAN_in.json" then return inbox end
+        if path == "RE4LAN_status.json" then return link_status end
     end,
     dump_file = function(path, data)
         if fail_write == "throw" then error("File busy") end
@@ -139,6 +141,55 @@ class PublicationTests(unittest.TestCase):
         self.advance(120, lambda g: setattr(g, "px", g.frame * 0.1))
         self.g.draw_ui()
         self.assertTrue(any("Partner:" in s for s in self.g.ui.values()))
+
+    def test_player_context_wins_over_duplicate_prefab_name(self):
+        self.lua.execute('''
+            local actual_xf = {call=function(_, method)
+                if method=="get_Position" then return {x=42,y=0,z=0} end
+                if method=="get_Rotation" then return {x=0,y=0,z=0,w=1} end
+                error(method)
+            end}
+            local actual_body = {call=function(_, method)
+                assert(method=="get_Transform"); return actual_xf
+            end}
+            local player = {call=function(_, method)
+                assert(method=="get_BodyGameObject"); return actual_body
+            end}
+            sdk.get_managed_singleton=function()
+                return {call=function(_, method)
+                    assert(method=="getPlayerContextRef()"); return player
+                end}
+            end
+        ''')
+        self.advance(1)
+        self.assertEqual(self.g.writes[1].data.pos[1], 42)
+
+    def test_missing_player_context_does_not_publish_another_body(self):
+        self.lua.execute('''
+            sdk.get_managed_singleton=function()
+                return {call=function() return nil end}
+            end
+        ''')
+        self.advance(1)
+        self.assertIsNone(self.g.writes[1].data.pos)
+
+    def test_visual_bridge_smooths_with_wire_figure_hidden(self):
+        self.lua.execute('''
+            link_status = {t=os.time(), connected=true, role="host", ping_ms=0}
+            inbox = {seq=1, d={name="Peer", pos={0,0,0}, yaw=0}}
+        ''')
+        self.advance(1)  # Discard a possibly stale inbox file once on startup.
+        self.lua.execute('inbox = {seq=2, d={name="Peer", pos={0,0,0}, yaw=0}}')
+        self.advance(29)
+        self.lua.execute('inbox = {seq=3, d={name="Peer", pos={1,0,0}, yaw=0.3}}')
+        self.advance(1)
+        pose = self.g.RE4LAN_visual.get_pose()
+        self.assertGreater(pose.pos[1], 0)
+        self.assertLess(pose.pos[1], 1)
+        pose.pos[1] = 999  # A consumer must not be able to modify internal ghost state.
+        self.assertLess(self.g.RE4LAN_visual.get_pose().pos[1], 1)
+        self.g.reset_script()
+        self.assertIsNone(self.g.RE4LAN_visual)
 
 
 class LuaSyntaxTests(unittest.TestCase):

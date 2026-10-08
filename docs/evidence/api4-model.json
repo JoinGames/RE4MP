@@ -1,0 +1,153 @@
+{
+  "source": "RE4MP_scout_api4.json",
+  "source_sha256": "5a414622f15cff42f810901823b8754af18db741ab99deb20727e48d40f1bdee",
+  "scan_version": 4,
+  "methods": {
+    "chainsaw.CharacterManager": {
+      "parent": "AppSingleton`1<chainsaw.CharacterManager>",
+      "methods": [
+        "getPlayerContextRef(0 params) -> chainsaw.CharacterContext",
+        "generateDynamicContextID(0 params) -> chainsaw.ContextID",
+        "getPlayerContextRef(chainsaw.CharacterManager.PlayerNo plno) -> chainsaw.CharacterContext",
+        "getPlayerContextRef(chainsaw.CharacterManager.PlayerKind plkind) -> chainsaw.CharacterContext",
+        "requestCreateBody(chainsaw.ContextID contextID, chainsaw.CharacterKindID characterKindID, chainsaw.CharacterUsePurposeFlag usePurpose, System.Action`1<System.ValueTuple`2<System.Int32,via.GameObject>> instantiatedEvent) -> System.Int32",
+        "requestDestroyBody(System.Int32 requestID) -> System.Void"
+      ]
+    },
+    "chainsaw.CharacterContext": {
+      "parent": "chainsaw.Context",
+      "methods": [
+        "get_KindID(0 params) -> chainsaw.CharacterKindID",
+        "get_SpawnerID(0 params) -> chainsaw.ContextID",
+        "get_CostumePresetID(0 params) -> System.UInt32",
+        "get_BodyGameObject(0 params) -> via.GameObject",
+        "get_CurrentStageID(0 params) -> chainsaw.StageID"
+      ]
+    },
+    "chainsaw.Context": {
+      "parent": "chainsaw.AppObjectBase",
+      "methods": [
+        "get_ID(0 params) -> chainsaw.ContextID"
+      ]
+    },
+    "chainsaw.ContextID": {
+      "parent": "chainsaw.AppObjectBase",
+      "methods": [
+        "get_Code(0 params) -> System.UInt32"
+      ]
+    },
+    "chainsaw.CharacterBodyUpdater": {
+      "parent": "chainsaw.BodyUpdater",
+      "methods": [
+        "get_InstanceDemandID(0 params) -> System.Int32",
+        "get_InstanceParentID(0 params) -> chainsaw.ContextID"
+      ]
+    }
+  },
+  "enums": {
+    "chainsaw.CharacterKindID": {
+      "Invalid": -1,
+      "ch0_a0z0": 100000,
+      "ch0_a1z0": 110000,
+      "ch0_zzzz": 199999,
+      "ch1_b5z1": 200019,
+      "ch1_b7z0": 200011,
+      "ch1_c0z0": 200000,
+      "ch1_c0z1": 200001,
+      "ch1_c0z2": 200002,
+      "ch1_c8z0": 200010,
+      "ch1_d0z0": 200008,
+      "ch1_d1z1": 200003,
+      "ch1_d2z0": 200004,
+      "ch1_d3z0": 200005,
+      "ch1_d4z0": 200012,
+      "ch1_d5z0": 200014,
+      "ch1_d6z0": 200016,
+      "ch1_e0z0": 200009,
+      "ch1_f0z0": 200006,
+      "ch1_f1z0": 200007,
+      "ch1_f2z0": 200015,
+      "ch1_f4z1": 200020,
+      "ch1_f5z1": 200021,
+      "ch1_f6z0": 200017,
+      "ch1_f7z0": 200013,
+      "ch1_f8z0": 200018,
+      "ch1_fcz0": 200026,
+      "ch1_fdz0": 200027,
+      "ch2_a1z0": 200030,
+      "ch2_a200": 200031,
+      "ch2_a3z0": 200032,
+      "ch2_a3z1": 200033,
+      "ch2_a600": 200034,
+      "ch2_a7z0": 200035,
+      "ch2_b0z0": 200036,
+      "ch2_b1z0": 200037,
+      "ch2_b200": 200038,
+      "ch2_b300": 200039,
+      "ch2_b400": 200040,
+      "ch2_b600": 200041,
+      "ch2_b8z0": 200042,
+      "ch2_b900": 200043,
+      "ch2_ba00": 200044,
+      "ch2_bbz0": 200045,
+      "ch2_bc00": 200046,
+      "ch2_bd00": 200047,
+      "ch3_a8z0": 380000,
+      "ch4_d7z0": 200022,
+      "ch4_f9z0": 200023,
+      "ch4_faz0": 200024,
+      "ch4_faz1": 200025,
+      "ch4_fbz0": 200029,
+      "ch4_fez0": 200028,
+      "ch5_j1z0": 500000,
+      "ch6_i0z0": 600000,
+      "ch6_i1z0": 600001,
+      "ch6_i2z0": 600002,
+      "ch6_i3z0": 600003,
+      "ch6_i4z0": 600004,
+      "ch6_i5z0": 600005,
+      "ch7_k0z0": 81109,
+      "ch8_0000": 80000,
+      "ch8_1000": 81000,
+      "ch8_1100": 81100,
+      "ch8_g0z0": 81106,
+      "ch8_g1z0": 81101,
+      "ch8_g2z0": 81107,
+      "ch8_g3z0": 81105,
+      "ch8_g4z0": 81108,
+      "ch8_g5z0": 81102,
+      "ch8_g9z0": 81103,
+      "ch8_gaz0": 81104
+    },
+    "chainsaw.CharacterUsePurposeFlag": {
+      "Dynamic": 2,
+      "None": 0,
+      "Spawner": 1
+    },
+    "chainsaw.GmGateBase.DoorSide": {
+      "SideA": 0,
+      "SideB": 1
+    }
+  },
+  "local_control_target": {
+    "errors": null,
+    "fields": {
+      "<ContextID>k__BackingField": {
+        "errors": null,
+        "fields": {
+          "EmptyCode": 4294967295,
+          "RequestUpdateCode": false,
+          "_Category": 0,
+          "_Code": 262148,
+          "_Group": 2,
+          "_Index": 4,
+          "_Kind": 0
+        },
+        "type": "chainsaw.ContextID"
+      },
+      "<Index>k__BackingField": 0,
+      "<Priority>k__BackingField": 0
+    },
+    "type": "chainsaw.CharacterManager.ControlTargetInfo"
+  }
+}

@@ -1,5 +1,5 @@
 --[[
-    RE4 LAN Co-op  v0.2.1  (Resident Evil 4 Remake, REFramework)
+    RE4 LAN Co-op  v0.3.0  (Resident Evil 4 Remake, REFramework)
 
     Что умеет:
       * связь с вторым игроком по локальной сети (через re4lan_relay.py);
@@ -92,6 +92,19 @@ local function typeof(n)
 end
 
 local function player_xf()
+    -- Идентичность игрока задаёт CharacterManager. Поиск только по имени может
+    -- выбрать второе тело с тем же prefab-именем после создания визуальной модели.
+    local ok_context, context_xf = pcall(function()
+        local manager = sdk.get_managed_singleton("chainsaw.CharacterManager")
+        if not manager then return nil end
+        local context = manager:call("getPlayerContextRef()")
+        if not context then return nil end
+        local body = context:call("get_BodyGameObject")
+        if body then return body:call("get_Transform") end
+    end)
+    if ok_context then return context_xf end
+
+    -- Совместимость с версиями API без доступа к CharacterManager.
     local scene = get_scene()
     if not scene then return nil end
     local ok, go = pcall(function() return scene:call("findGameObject(System.String)", PLAYER_OBJECT) end)
@@ -526,9 +539,9 @@ local function proj(x, y, z)
     return nil
 end
 
-local function draw_ghost()
+local function update_ghost_pose()
     local g, r = S.ghost, S.remote
-    if not cfg.show_ghost or not g or not r then return end
+    if not g or not r then return end
     local age = S.frame - r.frame
     if age > GHOST_HIDE then return end
 
@@ -539,6 +552,23 @@ local function draw_ghost()
     end
     local dy = math.atan(math.sin(g.tyaw - g.yaw), math.cos(g.tyaw - g.yaw))
     g.yaw = g.yaw + dy * 0.35
+end
+
+-- Визуальный эксперимент получает копию чисел, а не ссылки на игровые объекты.
+local visual_bridge = { version = 1 }
+function visual_bridge.get_pose()
+    if not relay_alive() or not S.link.connected or not S.ghost or not S.remote
+        or S.frame - S.remote.frame > GHOST_STALE then return nil end
+    local g = S.ghost
+    return { pos = {g.pos[1], g.pos[2], g.pos[3]}, yaw = g.yaw }
+end
+_G.RE4LAN_visual = visual_bridge
+
+local function draw_ghost()
+    local g, r = S.ghost, S.remote
+    if not cfg.show_ghost or not g or not r then return end
+    local age = S.frame - r.frame
+    if age > GHOST_HIDE then return end
 
     local x0, y0, z0 = g.pos[1], g.pos[2], g.pos[3]
     local sy, cy = math.sin(g.yaw), math.cos(g.yaw)
@@ -615,6 +645,7 @@ local function on_frame_impl()
         S.rx_n, S.tx_n, S.rate_time, S.rate_frame = 0, 0, now, S.frame
     end
 
+    update_ghost_pose()
     draw_ghost()
 
     pcall(function()
@@ -637,7 +668,10 @@ re.on_frame(function()
     end
 end)
 
-re.on_script_reset(function() pcall(json.dump_file, F_OUT, { seq = 0 }) end)
+re.on_script_reset(function()
+    if _G.RE4LAN_visual == visual_bridge then _G.RE4LAN_visual = nil end
+    pcall(json.dump_file, F_OUT, { seq = 0 })
+end)
 
 ---------------------------------------------------------------------------
 -- Меню REFramework
@@ -645,7 +679,7 @@ re.on_script_reset(function() pcall(json.dump_file, F_OUT, { seq = 0 }) end)
 re.on_draw_ui(function()
     if not imgui.tree_node("RE4 LAN Co-op") then return end
 
-    imgui.text("RE4LAN v0.2.1 | movement publication fix")
+    imgui.text("RE4LAN v0.3.0 | optional visual body probe")
 
     local changed
     changed, cfg.name = imgui.input_text("Your name", cfg.name)

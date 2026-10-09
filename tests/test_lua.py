@@ -193,9 +193,10 @@ class PublicationTests(unittest.TestCase):
 
 
 class LuaSyntaxTests(unittest.TestCase):
-    def test_scout_compiles(self):
+    def test_all_lua_scripts_compile(self):
         lua = LuaRuntime(unpack_returned_tuples=True)
-        lua.execute("assert(load(...))", (ROOT / "RE4MP_Scout.lua").read_text(encoding="utf-8"))
+        for name in ("RE4LAN.lua", "RE4LAN_ModelProbe.lua", "RE4LAN_LinkedSpawnProbe.lua", "RE4MP_Scout.lua"):
+            lua.execute("assert(load(...))", (ROOT / name).read_text(encoding="utf-8"))
 
 
 SCOUT_HARNESS = r'''

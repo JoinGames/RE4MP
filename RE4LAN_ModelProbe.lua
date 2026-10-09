@@ -1,4 +1,4 @@
--- RE4LAN Model Probe v0.3.3. Optional, manual, one body request per script session.
+-- RE4LAN Model Probe v0.3.4. Optional, manual, one body request per script session.
 -- Uses APIs observed in RE4MP_scout_api4.json; native behavior is experimental.
 -- No player/partner slot changes, head/AI creation, inventory or save operations.
 -- Install beside RE4LAN.lua. See docs/MODEL_PROBE.md before running the test.
@@ -9,7 +9,7 @@ local S = {
     phase = "idle", message = "Capture API or start the manual body test.",
     action = nil, attempted = false, request_id = nil, context_code = nil,
     identity = nil, name = nil, cleanup_sent = false, frame = 0,
-    started = nil, next_search = 0, moves = 0, report = { version = "0.3.3" },
+    started = nil, next_search = 0, moves = 0, report = { version = "0.3.4" },
 }
 
 local function list(value)
@@ -134,6 +134,32 @@ local function zero_method(obj, name)
     end
 end
 
+local function collection_items(value, limit)
+    if not value then return {} end
+    local ok, elements = pcall(function() return value:get_elements() end)
+    if ok and elements then return list(elements) end
+    if type(value) == "table" and not value.get_type_definition then return value end
+    local get_enum = zero_method(value, "GetEnumerator")
+    if not get_enum then return {} end
+    local ok_enum, enumerator = pcall(function() return get_enum:call(value) end)
+    if not ok_enum or not enumerator then return {} end
+    local move = zero_method(enumerator, "MoveNext")
+    local current = zero_method(enumerator, "get_Current")
+    if not move or not current then return {} end
+    local result = {}
+    pcall(function()
+        for _ = 1, limit or 128 do
+            if not move:call(enumerator) then break end
+            result[#result + 1] = current:call(enumerator)
+        end
+    end)
+    pcall(function()
+        local dispose = zero_method(enumerator, "Dispose")
+        if dispose then dispose:call(enumerator) end
+    end)
+    return result
+end
+
 local function children(xf)
     local arr = xf:call("get_Children")
     if not arr then return {} end
@@ -186,7 +212,7 @@ local function inspect_tree(root)
         end)
         if ok_scale then node.scale = scale end
         local comps = go:call("get_Components")
-        for _, comp in ipairs(comps and list(comps:get_elements()) or {}) do
+        for _, comp in ipairs(collection_items(comps, 256)) do
             local td = comp:get_type_definition()
             local entry = { type = td:get_full_name() }
             node.components[#node.components + 1] = entry
@@ -563,7 +589,7 @@ local function remove(reason)
 end
 
 local function cloth_component(go)
-    for _, comp in ipairs(list(go:call("get_Components"):get_elements())) do
+    for _, comp in ipairs(collection_items(go:call("get_Components"), 256)) do
         if comp:get_type_definition():get_full_name() == "chainsaw.GPUClothCharacter" then return comp end
     end
 end
@@ -714,7 +740,7 @@ re.on_application_entry("LateUpdateBehavior", function() guarded(follow) end)
 re.on_script_reset(function() guarded(function() remove("Script reset.") end) end)
 re.on_draw_ui(function()
     if not imgui.tree_node("RE4LAN Model Probe") then return end
-    imgui.text("v0.3.3 | Owned-body costume / cloth test | default OFF")
+    imgui.text("v0.3.4 | Owned-body costume / cloth test | default OFF")
     imgui.text("No animation or combat sync. 180 seconds after the costume request.")
     imgui.text("Use a disposable game session; restart after the test before saving.")
     imgui.text("State: " .. S.phase)

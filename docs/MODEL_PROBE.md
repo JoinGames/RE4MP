@@ -132,12 +132,13 @@ v0.3.2 обходит настоящий `IEnumerable<Transform>` через п�
 
 ## Связанный персонаж и будущая синхронизация
 
-Для следующего шага в архиве есть `RE4LAN_LinkedSpawnProbe.lua` v0.3.0. Скопируй
+Для следующего шага в архиве есть `RE4LAN_LinkedSpawnProbe.lua` v0.4.0. Скопируй
 его в тот же `autorun`, отключи сторонний кооп-мод, открой **RE4LAN Linked Spawn
 Probe** и нажми **TEST: create partner slot**. Probe использует подтверждённый
-рецепт оригинального мода: `ch2_a3z0` (`KindID=200032`), `Spawner=1` и один
-`ContextID` для spawner и партнёра. После `active` нажми **Place partner next to
-me**: тело будет поставлено на 2 метра рядом с локальным игроком. Сделай
+рецепт оригинального мода: `requestCreateHead` → `requestCreateBody` →
+`requestSpawn`, с `ch2_a3z0` (`KindID=200032`), `Spawner=1` и одним `ContextID`
+для spawner и партнёра. После `active` нажми **Place partner next to me**: тело
+будет поставлено на 2 метра рядом с локальным игроком. Сделай
 скриншот тела и пришли `RE4LAN_linked_spawn_probe.json`; затем перезапусти игру
 без сохранения.
 

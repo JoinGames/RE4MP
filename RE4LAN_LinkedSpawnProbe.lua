@@ -4,7 +4,7 @@
 -- Do not run the original co-op mod at the same time: an existing partner slot
 -- is detected and this probe will refuse to create a second one.
 
-local VERSION = "0.2.0"
+local VERSION = "0.3.0"
 local REPORT = "RE4LAN_linked_spawn_probe.json"
 local S = {phase = "idle", message = "Capture the confirmed partner recipe.", action = nil,
     attempted = false, code = nil, started = nil, next_poll = 0, moves = 0,
@@ -70,7 +70,19 @@ local function value(obj, method)
     pcall(function()
         if out.type == "chainsaw.ContextID" then out.code = result:call("get_Code") end
     end)
+    if out.type == "via.vec3" then
+        pcall(function() out.xyz = {result.x, result.y, result.z} end)
+    elseif out.type == "via.Quaternion" then
+        pcall(function() out.xyzw = {result.x, result.y, result.z, result.w} end)
+    end
     return out
+end
+
+local function transform_snapshot(go)
+    if not go then return {is_nil = true} end
+    local ok, transform = pcall(function() return go:call("get_Transform") end)
+    if not ok or not transform then return {unavailable = tostring(transform)} end
+    return {position = value(transform, "get_Position"), rotation = value(transform, "get_Rotation")}
 end
 
 local function write(message)
@@ -137,7 +149,8 @@ local function motion_snapshot(go)
 end
 
 local function body_snapshot(go)
-    local result = {address = tostring(go:get_address()), name = value(go, "get_Name"), components = {}}
+    local result = {address = tostring(go:get_address()), name = value(go, "get_Name"),
+        transform = transform_snapshot(go), components = {}}
     local ok, collection = pcall(function() return go:call("get_Components") end)
     if ok and collection then
         for _, component in ipairs(items(collection)) do
@@ -176,12 +189,34 @@ local function start()
     S.code = player_code
     S.report.recipe = {spawner_code = player_code, context_code = player_code,
         kind = kind, purpose = purpose, costume_preset = 0, same_context_id = true}
+    S.report.local_player_transform = transform_snapshot(player:call("get_BodyGameObject"))
     S.attempted, S.started, S.next_poll = true, os.time(), 0
     status("requesting", "Calling confirmed PartnerBaseContext requestSpawn once; disposable test.")
     -- The original trace used the six-argument overload with an empty accessory
     -- array. The five-argument overload has the same default empty accessories.
     manager:call("requestSpawn", player_id, player_id, kind, purpose, 0)
     status("waiting", "requestSpawn accepted; waiting for PartnerBaseContext and body.")
+end
+
+local function place_next_to_player()
+    local _, manager, player = current()
+    local ctx, body = partner_context(manager)
+    assert(ctx and body, "PartnerBaseContext is not active")
+    local player_body = player:call("get_BodyGameObject")
+    local transform = player_body:call("get_Transform")
+    local position = transform:call("get_Position")
+    local rotation = transform:call("get_Rotation")
+    local target = Vector3f.new(position.x + 2.0, position.y, position.z)
+    local ok = pcall(function() ctx:call("setTransform", target, rotation) end)
+    if not ok then
+        local target_transform = body:call("get_Transform")
+        target_transform:call("set_Position", target)
+        target_transform:call("set_Rotation", rotation)
+    end
+    S.report.placement = {target = {position = {target.x, target.y, target.z}},
+        player = transform_snapshot(player_body)}
+    S.report.context, S.report.body = context_snapshot(ctx), body_snapshot(body)
+    status("placed", "Partner body placed 2m beside the local player; inspect the model now.")
 end
 
 local function follow(ctx, body)
@@ -251,6 +286,10 @@ re.on_draw_ui(function()
     imgui.text("Disposable only: no save; restart after the test.")
     imgui.text("State: " .. S.phase); imgui.text(S.message)
     if not S.attempted and imgui.button("TEST: create partner slot") then S.action = "start" end
+    if S.phase == "active" and imgui.button("Place partner next to me") then
+        local ok, err = pcall(place_next_to_player)
+        if not ok then status("error", tostring(err)) end
+    end
     imgui.text("Report: reframework/data/" .. REPORT)
     imgui.tree_pop()
 end)

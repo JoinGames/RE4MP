@@ -132,12 +132,12 @@ v0.3.2 обходит настоящий `IEnumerable<Transform>` через п�
 
 ## Связанный персонаж и будущая синхронизация
 
-Для следующего шага в архиве есть `RE4LAN_LinkedSpawnProbe.lua`. Скопируй его
-в тот же `autorun`, открой **RE4LAN Linked Spawn Probe** и нажми
-**TEST: request linked character**. Он использует `requestSpawn` с новым
-динамическим ContextID и ждёт запись в `CharacterContextDB`. После `active`
-подожди 10–20 секунд, затем нажми **Release linked character** и перезапусти
-игру. Пришли `RE4LAN_linked_spawn_probe.json` с обоих ПК.
+Для следующего шага в архиве есть `RE4LAN_LinkedSpawnProbe.lua` v0.2.0. Скопируй
+его в тот же `autorun`, отключи сторонний кооп-мод, открой **RE4LAN Linked Spawn
+Probe** и нажми **TEST: create partner slot**. Probe использует подтверждённый
+рецепт оригинального мода: `ch2_a3z0` (`KindID=200032`), `Spawner=1` и один
+`ContextID` для spawner и партнёра. После `active` сделай скриншот тела и
+пришли `RE4LAN_linked_spawn_probe.json`; затем перезапусти игру без сохранения.
 
 Пока этот тест не подтвердит `Context`, `Setuped`, Motion и HitController,
 не включаются сетевые анимации и урон. Передача одного transform не может

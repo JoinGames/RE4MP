@@ -195,7 +195,8 @@ class PublicationTests(unittest.TestCase):
 class LuaSyntaxTests(unittest.TestCase):
     def test_all_lua_scripts_compile(self):
         lua = LuaRuntime(unpack_returned_tuples=True)
-        for name in ("RE4LAN.lua", "RE4LAN_ModelProbe.lua", "RE4LAN_LinkedSpawnProbe.lua", "RE4MP_Scout.lua"):
+        for name in ("RE4LAN.lua", "RE4LAN_ModelProbe.lua", "RE4LAN_LinkedSpawnProbe.lua",
+                     "RE4LAN_PartnerContextProbe.lua", "RE4MP_Scout.lua"):
             lua.execute("assert(load(...))", (ROOT / name).read_text(encoding="utf-8"))
 
 

@@ -4,7 +4,7 @@
 -- Do not run the original co-op mod at the same time: an existing partner slot
 -- is detected and this probe will refuse to create a second one.
 
-local VERSION = "0.4.0"
+local VERSION = "0.5.0"
 local REPORT = "RE4LAN_linked_spawn_probe.json"
 local S = {phase = "idle", message = "Capture the confirmed partner recipe.", action = nil,
     attempted = false, code = nil, started = nil, next_poll = 0, moves = 0,
@@ -189,20 +189,35 @@ local function start()
     for _, method in ipairs({"requestCreateHead", "requestCreateBody", "requestSpawn"}) do
         assert(manager_type:get_method(method), "Missing CharacterManager." .. method)
     end
-    S.code = player_code
-    S.report.recipe = {spawner_code = player_code, context_code = player_code,
-        kind = kind, purpose = purpose, costume_preset = 0, same_context_id = true,
-        order = {"requestCreateHead", "requestCreateBody", "requestSpawn"}}
+    assert(manager_type:get_method("generateDynamicContextID"), "Missing CharacterManager.generateDynamicContextID")
+    local generated_id = assert(manager:call("generateDynamicContextID"))
+    local generated_code = assert(generated_id:call("get_Code"))
+    assert(generated_code ~= player_code, "Generated ContextID equals local player ID")
+    local accessories
+    if type(sdk.create_managed_array) == "function" then
+        accessories = assert(sdk.create_managed_array("chainsaw.AccessoryID", 0))
+    end
+    S.code = generated_code
+    S.report.recipe = {spawner_code = generated_code, context_code = generated_code,
+        local_player_code = player_code, kind = kind, purpose = purpose, costume_preset = 0,
+        same_context_id = true, spawner_is_local_player = false,
+        generated_id = value(generated_id, "get_Code"), accessories_length = accessories and 0 or nil,
+        overload = accessories and 6 or 5,
+        order = {"generateDynamicContextID", "requestCreateHead", "requestCreateBody", "requestSpawn"}}
     S.report.local_player_transform = transform_snapshot(player:call("get_BodyGameObject"))
     S.attempted, S.started, S.next_poll = true, os.time(), 0
     status("requesting", "Creating partner head and body, then linking the PartnerBaseContext.")
     -- This is the exact order observed in the original mod. The body callback is
     -- intentionally nil: the engine performs the link through requestSpawn.
-    S.report.recipe.head_request = manager:call("requestCreateHead", player_id, kind, purpose)
-    S.report.recipe.body_request = manager:call("requestCreateBody", player_id, kind, purpose, nil)
+    S.report.recipe.head_request = manager:call("requestCreateHead", generated_id, kind, purpose)
+    S.report.recipe.body_request = manager:call("requestCreateBody", generated_id, kind, purpose, nil)
     -- The original trace used the six-argument overload with an empty accessory
     -- array. The five-argument overload supplies the same default empty array.
-    manager:call("requestSpawn", player_id, player_id, kind, purpose, 0)
+    if accessories then
+        manager:call("requestSpawn", generated_id, generated_id, kind, purpose, 0, accessories)
+    else
+        manager:call("requestSpawn", generated_id, generated_id, kind, purpose, 0)
+    end
     status("waiting", "Head/body requests and requestSpawn accepted; waiting for PartnerBaseContext.")
 end
 
